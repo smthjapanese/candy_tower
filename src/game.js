@@ -54,16 +54,71 @@ function normalizeMeta(m) {
   };
 }
 
-// candy flavours sold in the shop — index 0 (Клубничный) mirrors PALETTE.tiers[0]
-// and is always owned/selected by default; the rest unlock with earned candy.
+// candy flavours sold in the shop — index 0 mirrors PALETTE.tiers[0] and is
+// always owned/selected by default; the rest unlock with earned candy. Names
+// are looked up from STRINGS[lang].skinNames by index, not stored here — this
+// data is purely visual (colours/price), never localized.
 const SKIN_DEFS = [
-  { name: 'Клубничный',   top: 0xFFB3C6, bot: 0xFF6F97, dark: 0x7A1F3D, price: 0 },
-  { name: 'Лимонный',     top: 0xFFE29A, bot: 0xF7B93B, dark: 0x8A5A12, price: 100 },
-  { name: 'Мятный',       top: 0xB8F0B8, bot: 0x5FC95F, dark: 0x2F6B3A, price: 150 },
-  { name: 'Виноградный',  top: 0xC9BBFF, bot: 0x8F72E8, dark: 0x443077, price: 250 },
-  { name: 'Апельсиновый', top: 0xFFCB7A, bot: 0xE8843C, dark: 0x7A4A18, price: 200 },
-  { name: 'Вишнёвый',     top: 0xFF9DAE, bot: 0xE8405F, dark: 0x7A1030, price: 300 }
+  { top: 0xFFB3C6, bot: 0xFF6F97, dark: 0x7A1F3D, price: 0 },
+  { top: 0xFFE29A, bot: 0xF7B93B, dark: 0x8A5A12, price: 100 },
+  { top: 0xB8F0B8, bot: 0x5FC95F, dark: 0x2F6B3A, price: 150 },
+  { top: 0xC9BBFF, bot: 0x8F72E8, dark: 0x443077, price: 250 },
+  { top: 0xFFCB7A, bot: 0xE8843C, dark: 0x7A4A18, price: 200 },
+  { top: 0xFF9DAE, bot: 0xE8405F, dark: 0x7A1030, price: 300 }
 ];
+
+// ---------- localized UI strings ----------
+// Only 'ru' exists today (the only language Yandex moderation approved), but
+// every UI-facing string routes through here so adding STRINGS.en later is a
+// pure data change — no call site needs to change. Values that need runtime
+// data (score, combo, etc.) are functions; everything else is a plain string.
+const STRINGS = {
+  ru: {
+    tapHint: 'Тапни, чтобы уронить конфету',
+    towerLean: 'Наклон башни',
+    continueTitle: 'БАШНЯ ПОШАТНУЛАСЬ',
+    continueSub: 'Посмотри рекламу — и башня устоит',
+    watchAd: '▶ СМОТРЕТЬ РЕКЛАМУ',
+    skip: 'Пропустить',
+    gameOverTitle: 'БАШНЯ РУХНУЛА',
+    statRecord: 'РЕКОРД',
+    statCandy: 'КОНФЕТЫ',
+    retry: 'ЕЩЁ РАЗ',
+    shareCopied: 'Скопировано!',
+    shareText: (score) => `Я построил Сладкую Башню высотой ${score} очков! Сможешь лучше?`,
+    pauseTitle: 'ПАУЗА',
+    pauseResume: 'ПРОДОЛЖИТЬ',
+    pauseRestart: 'ЗАНОВО',
+    pauseMenu: 'В МЕНЮ',
+    bonusPopup: 'БОНУС! +50',
+    precisePopup: 'ТОЧНО! +25  ↔ ШИРЕ',
+    mergePopup: (combo, bonus) => 'СЛИЯНИЕ x' + combo + '  +' + bonus + '  ↔ ШИРЕ',
+    menuTitleTop: 'СЛАДКАЯ',
+    menuTitleBottom: 'БАШНЯ',
+    play: 'ИГРАТЬ',
+    shop: 'МАГАЗИН',
+    settings: 'НАСТРОЙКИ',
+    bestScore: (best) => 'РЕКОРД: ' + best,
+    back: 'НАЗАД',
+    notEnoughCandy: 'Не хватает конфет',
+    selectedBadge: 'ВЫБРАНО',
+    ownedBadge: 'КУПЛЕНО',
+    skinNames: ['Клубничный', 'Лимонный', 'Мятный', 'Виноградный', 'Апельсиновый', 'Вишнёвый']
+  }
+};
+
+// Languages the UI actually has copy for — extend once STRINGS.en (etc.) exists.
+const SUPPORTED_LANGS = ['ru'];
+let CURRENT_LANG = 'ru';
+
+// Looks up STRINGS[CURRENT_LANG][key], calling it with args when it's a
+// template function; falls back to STRINGS.ru if the current language is
+// missing that key (keeps a partially-translated future language safe).
+function t(key, ...args) {
+  const dict = STRINGS[CURRENT_LANG] || STRINGS.ru;
+  const entry = key in dict ? dict[key] : STRINGS.ru[key];
+  return typeof entry === 'function' ? entry(...args) : entry;
+}
 
 // confetti dots for the main menu backdrop — [x, y, size, color]
 const MENU_CONFETTI = [
@@ -209,7 +264,7 @@ class MainScene extends Phaser.Scene {
       fontFamily: 'Arial, sans-serif', fontSize: '46px', fontStyle: 'bold', color: PALETTE.textMain
     }).setOrigin(0.5).setDepth(20);
 
-    this.hintText = this.add.text(W/2, 95, 'Тапни, чтобы уронить конфету', {
+    this.hintText = this.add.text(W/2, 95, t('tapHint'), {
       fontFamily: 'Arial, sans-serif', fontSize: '15px', color: PALETTE.textDim
     }).setOrigin(0.5).setDepth(20);
 
@@ -217,7 +272,7 @@ class MainScene extends Phaser.Scene {
       fontFamily: 'Arial, sans-serif', fontSize: '18px', fontStyle: 'bold', color: '#FFD166'
     }).setOrigin(0.5).setDepth(20);
 
-    this.stabLabel = this.add.text(W/2, 12, 'Наклон башни', {
+    this.stabLabel = this.add.text(W/2, 12, t('towerLean'), {
       fontFamily: 'Arial, sans-serif', fontSize: '10px', color: PALETTE.textDim
     }).setOrigin(0.5).setDepth(20).setAlpha(0.8);
     this.stabBarBg = this.add.rectangle(W/2, 24, 200, 6, 0x2A1710, 0.7).setDepth(20);
@@ -256,17 +311,17 @@ class MainScene extends Phaser.Scene {
     this.overlay = this.add.rectangle(W/2, H/2, W, H, 0x2B160C, 0.88).setDepth(30).setVisible(false);
 
     // continue (rewarded) offer
-    this.contTitle = this.add.text(W/2, H/2 - 90, 'БАШНЯ ПОШАТНУЛАСЬ', {
+    this.contTitle = this.add.text(W/2, H/2 - 90, t('continueTitle'), {
       fontFamily: 'Arial, sans-serif', fontSize: '24px', fontStyle: 'bold', color: '#FFD166', align: 'center', wordWrap: {width: 320}
     }).setOrigin(0.5).setDepth(31).setVisible(false);
-    this.contSub = this.add.text(W/2, H/2 - 50, 'Посмотри рекламу — и башня устоит', {
+    this.contSub = this.add.text(W/2, H/2 - 50, t('continueSub'), {
       fontFamily: 'Arial, sans-serif', fontSize: '14px', color: PALETTE.textDim, align: 'center'
     }).setOrigin(0.5).setDepth(31).setVisible(false);
     this.contBtn = this.add.rectangle(W/2, H/2 + 10, 260, 56, 0x8AE68A).setDepth(31).setVisible(false).setInteractive({useHandCursor:true});
-    this.contBtnText = this.add.text(W/2, H/2 + 10, '▶ СМОТРЕТЬ РЕКЛАМУ', {
+    this.contBtnText = this.add.text(W/2, H/2 + 10, t('watchAd'), {
       fontFamily: 'Arial, sans-serif', fontSize: '16px', fontStyle: 'bold', color: '#2B160C'
     }).setOrigin(0.5).setDepth(32).setVisible(false);
-    this.contSkip = this.add.text(W/2, H/2 + 65, 'Пропустить', {
+    this.contSkip = this.add.text(W/2, H/2 + 65, t('skip'), {
       fontFamily: 'Arial, sans-serif', fontSize: '14px', color: PALETTE.textDim
     }).setOrigin(0.5).setDepth(31).setVisible(false).setInteractive({useHandCursor:true});
 
@@ -284,7 +339,7 @@ class MainScene extends Phaser.Scene {
     });
 
     // final game-over screen (ported from the "Game Over Screen" design)
-    this.goTitle = this.add.text(W/2, 84, 'БАШНЯ РУХНУЛА', {
+    this.goTitle = this.add.text(W/2, 84, t('gameOverTitle'), {
       fontFamily: 'Arial, sans-serif', fontSize: '26px', fontStyle: 'bold', color: '#FF5C7A', align: 'center', wordWrap: {width: 340}
     }).setOrigin(0.5).setDepth(31).setVisible(false);
 
@@ -300,7 +355,7 @@ class MainScene extends Phaser.Scene {
     drawStatCard(this.goStatGfx, recordCX, statY, cardW, cardH, 18);
     drawStatCard(this.goStatGfx, candyCX, statY, cardW, cardH, 18);
 
-    this.goRecordLabel = this.add.text(recordCX, statY - 20, 'РЕКОРД', {
+    this.goRecordLabel = this.add.text(recordCX, statY - 20, t('statRecord'), {
       fontFamily: 'Arial, sans-serif', fontSize: '13px', fontStyle: 'bold', color: PALETTE.textDim
     }).setOrigin(0.5).setDepth(32).setVisible(false);
     this.goRecordValue = this.add.text(recordCX, statY + 12, '0', {
@@ -309,7 +364,7 @@ class MainScene extends Phaser.Scene {
 
     this.goCandyIconGfx = this.add.graphics().setDepth(32).setVisible(false);
     drawCandyIcon(this.goCandyIconGfx, candyCX - 24, statY + 12, 10);
-    this.goCandyLabel = this.add.text(candyCX, statY - 20, 'КОНФЕТЫ', {
+    this.goCandyLabel = this.add.text(candyCX, statY - 20, t('statCandy'), {
       fontFamily: 'Arial, sans-serif', fontSize: '13px', fontStyle: 'bold', color: PALETTE.textDim
     }).setOrigin(0.5).setDepth(32).setVisible(false);
     this.goCandyValue = this.add.text(candyCX + 4, statY + 12, '+0', {
@@ -325,7 +380,7 @@ class MainScene extends Phaser.Scene {
       hitAreaCallback: Phaser.Geom.Rectangle.Contains,
       useHandCursor: true
     });
-    this.goRetryText = this.add.text(retryCX, btnY, 'ЕЩЁ РАЗ', {
+    this.goRetryText = this.add.text(retryCX, btnY, t('retry'), {
       fontFamily: 'Arial, sans-serif', fontSize: '24px', fontStyle: 'bold', color: PALETTE.textMain
     }).setOrigin(0.5).setDepth(32).setVisible(false);
 
@@ -361,7 +416,7 @@ class MainScene extends Phaser.Scene {
   // ---------- pause overlay (reuses the shared dark backdrop) ----------
   buildPauseUI() {
     const px = W/2;
-    this.pauseTitle = this.add.text(px, H/2 - 190, 'ПАУЗА', {
+    this.pauseTitle = this.add.text(px, H/2 - 190, t('pauseTitle'), {
       fontFamily: 'Arial, sans-serif', fontSize: '40px', fontStyle: 'bold', color: PALETTE.textMain
     }).setOrigin(0.5).setDepth(31).setVisible(false);
 
@@ -372,7 +427,7 @@ class MainScene extends Phaser.Scene {
       hitArea: new Phaser.Geom.Rectangle(px - resumeW/2 - 18, resumeY - resumeH/2, resumeW + 36, resumeH),
       hitAreaCallback: Phaser.Geom.Rectangle.Contains, useHandCursor: true
     });
-    this.pauseResumeText = this.add.text(px, resumeY, 'ПРОДОЛЖИТЬ', {
+    this.pauseResumeText = this.add.text(px, resumeY, t('pauseResume'), {
       fontFamily: 'Arial, sans-serif', fontSize: '22px', fontStyle: 'bold', color: PALETTE.textMain
     }).setOrigin(0.5).setDepth(32).setVisible(false);
 
@@ -383,7 +438,7 @@ class MainScene extends Phaser.Scene {
       hitArea: new Phaser.Geom.Rectangle(px - restartW/2 - 16, restartY - restartH/2, restartW + 32, restartH),
       hitAreaCallback: Phaser.Geom.Rectangle.Contains, useHandCursor: true
     });
-    this.pauseRestartText = this.add.text(px, restartY, 'ЗАНОВО', {
+    this.pauseRestartText = this.add.text(px, restartY, t('pauseRestart'), {
       fontFamily: 'Arial, sans-serif', fontSize: '19px', fontStyle: 'bold', color: PALETTE.textMain
     }).setOrigin(0.5).setDepth(32).setVisible(false);
 
@@ -394,7 +449,7 @@ class MainScene extends Phaser.Scene {
       hitArea: new Phaser.Geom.Rectangle(px - menuW/2 - 16, menuY - menuH/2, menuW + 32, menuH),
       hitAreaCallback: Phaser.Geom.Rectangle.Contains, useHandCursor: true
     });
-    this.pauseMenuText = this.add.text(px, menuY, 'В МЕНЮ', {
+    this.pauseMenuText = this.add.text(px, menuY, t('pauseMenu'), {
       fontFamily: 'Arial, sans-serif', fontSize: '19px', fontStyle: 'bold', color: PALETTE.textMain
     }).setOrigin(0.5).setDepth(32).setVisible(false);
 
@@ -427,11 +482,11 @@ class MainScene extends Phaser.Scene {
 
   // ---------- share ----------
   shareResult() {
-    const text = `Я построил Сладкую Башню высотой ${this.score} очков! Сможешь лучше?`;
+    const text = t('shareText', this.score);
     if (navigator.share) {
       navigator.share({ text }).catch(() => {});
     } else if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(() => this.flashShareToast('Скопировано!')).catch(() => {});
+      navigator.clipboard.writeText(text).then(() => this.flashShareToast(t('shareCopied'))).catch(() => {});
     }
   }
 
@@ -746,7 +801,7 @@ class MainScene extends Phaser.Scene {
     let hazardBonus = 0;
     if (this.hazard && overlapWidth > 0 && this.hazard.x >= overlapLeft && this.hazard.x <= overlapRight) {
       hazardBonus = 50;
-      hazardMsg = 'БОНУС! +50';
+      hazardMsg = t('bonusPopup');
       this.burstAt(this.hazard.x, this.hazard.block.y - 12, PALETTE.bonus, 14);
     }
     if (this.hazard) { this.hazard.gfx.destroy(); this.hazard = null; }
@@ -782,7 +837,7 @@ class MainScene extends Phaser.Scene {
       this.sndBonus();
     } else if (fullOverlap) {
       gained += 15;
-      this.flashCombo('ТОЧНО! +25  ↔ ШИРЕ');
+      this.flashCombo(t('precisePopup'));
     } else {
       this.comboText.setText('');
     }
@@ -862,7 +917,7 @@ class MainScene extends Phaser.Scene {
         const bonus = 20 * this.combo;
         this.score += bonus;
         this.scoreText.setText(String(this.score));
-        this.flashCombo('СЛИЯНИЕ x' + this.combo + '  +' + bonus + '  ↔ ШИРЕ');
+        this.flashCombo(t('mergePopup', this.combo, bonus));
         this.sndMerge(newTier);
         merged = true;
       }
@@ -955,10 +1010,10 @@ class MenuScene extends Phaser.Scene {
       else confettiGfx.fillCircle(x, y, s);
     });
 
-    this.add.text(W/2, 80, 'СЛАДКАЯ', {
+    this.add.text(W/2, 80, t('menuTitleTop'), {
       fontFamily: 'Arial, sans-serif', fontSize: '44px', fontStyle: 'bold', color: PALETTE.textMain, align: 'center'
     }).setOrigin(0.5).setDepth(10);
-    this.add.text(W/2, 126, 'БАШНЯ', {
+    this.add.text(W/2, 126, t('menuTitleBottom'), {
       fontFamily: 'Arial, sans-serif', fontSize: '44px', fontStyle: 'bold', color: '#FF8FAB', align: 'center'
     }).setOrigin(0.5).setDepth(10);
 
@@ -980,7 +1035,7 @@ class MenuScene extends Phaser.Scene {
       hitArea: new Phaser.Geom.Rectangle(W/2 - playW/2 - 18, playY - playH/2, playW + 36, playH),
       hitAreaCallback: Phaser.Geom.Rectangle.Contains, useHandCursor: true
     });
-    const playText = this.add.text(W/2, playY, 'ИГРАТЬ', {
+    const playText = this.add.text(W/2, playY, t('play'), {
       fontFamily: 'Arial, sans-serif', fontSize: '30px', fontStyle: 'bold', color: PALETTE.textMain
     }).setOrigin(0.5).setDepth(11);
     playGfx.on('pointerdown', (p, x, y, e) => {
@@ -998,7 +1053,7 @@ class MenuScene extends Phaser.Scene {
       hitArea: new Phaser.Geom.Rectangle(shopCX - btnW/2 - 14, rowY - btnH/2, btnW + 28, btnH),
       hitAreaCallback: Phaser.Geom.Rectangle.Contains, useHandCursor: true
     });
-    this.add.text(shopCX, rowY, 'МАГАЗИН', {
+    this.add.text(shopCX, rowY, t('shop'), {
       fontFamily: 'Arial, sans-serif', fontSize: '16px', fontStyle: 'bold', color: PALETTE.textMain
     }).setOrigin(0.5).setDepth(11);
     shopGfx.on('pointerdown', (p, x, y, e) => { e.stopPropagation(); this.scene.start('shop'); });
@@ -1009,20 +1064,20 @@ class MenuScene extends Phaser.Scene {
       hitArea: new Phaser.Geom.Rectangle(setCX - btnW/2 - 14, rowY - btnH/2, btnW + 28, btnH),
       hitAreaCallback: Phaser.Geom.Rectangle.Contains, useHandCursor: true
     });
-    this.add.text(setCX, rowY, 'НАСТРОЙКИ', {
+    this.add.text(setCX, rowY, t('settings'), {
       fontFamily: 'Arial, sans-serif', fontSize: '15px', fontStyle: 'bold', color: PALETTE.textMain
     }).setOrigin(0.5).setDepth(11);
     // no dedicated settings screen exists yet — audio is the only real setting,
     // so this button routes to the same toggle as the icon above
     setGfx.on('pointerdown', (p, x, y, e) => { e.stopPropagation(); this.toggleSound(); });
 
-    this.bestText = this.add.text(W/2, H - 26, 'РЕКОРД: 0', {
+    this.bestText = this.add.text(W/2, H - 26, t('bestScore', 0), {
       fontFamily: 'Arial, sans-serif', fontSize: '15px', fontStyle: 'bold', color: PALETTE.textDim
     }).setOrigin(0.5).setDepth(10);
 
     window.gameBridge.loadData().then((m) => {
       this.meta = normalizeMeta(m);
-      this.bestText.setText('РЕКОРД: ' + this.meta.best);
+      this.bestText.setText(t('bestScore', this.meta.best));
       this.drawSoundIcon(soundCX, soundCY, soundR);
     });
 
@@ -1072,7 +1127,7 @@ class ShopScene extends Phaser.Scene {
     drawGlowCircle(bg, W + 40, 20, 100, 0.05);
     drawGlowCircle(bg, -30, 470, 100, 0.04);
 
-    this.add.text(24, 40, 'МАГАЗИН', {
+    this.add.text(24, 40, t('shop'), {
       fontFamily: 'Arial, sans-serif', fontSize: '26px', fontStyle: 'bold', color: PALETTE.textMain
     }).setOrigin(0, 0.5).setDepth(10);
 
@@ -1092,7 +1147,7 @@ class ShopScene extends Phaser.Scene {
       hitArea: new Phaser.Geom.Rectangle(W/2 - backW/2 - 14, backY - backH/2, backW + 28, backH),
       hitAreaCallback: Phaser.Geom.Rectangle.Contains, useHandCursor: true
     });
-    this.add.text(W/2, backY, 'НАЗАД', {
+    this.add.text(W/2, backY, t('back'), {
       fontFamily: 'Arial, sans-serif', fontSize: '19px', fontStyle: 'bold', color: PALETTE.textMain
     }).setOrigin(0.5).setDepth(11);
     backGfx.on('pointerdown', (p, x, y, e) => { e.stopPropagation(); this.scene.start('menu'); });
@@ -1138,13 +1193,13 @@ class ShopScene extends Phaser.Scene {
       gfx.on('pointerdown', (p, x, y, e) => { e.stopPropagation(); this.onCardTap(i); });
       this.cardObjects.push(gfx);
 
-      const nameText = this.add.text(cx, cy + 16, def.name, {
+      const nameText = this.add.text(cx, cy + 16, t('skinNames')[i], {
         fontFamily: 'Arial, sans-serif', fontSize: '15px', fontStyle: 'bold', color: PALETTE.textMain
       }).setOrigin(0.5).setDepth(11);
       this.cardObjects.push(nameText);
 
       const badgeColor = selected ? '#FFD166' : owned ? PALETTE.textDim : PALETTE.textMain;
-      const badgeStr = selected ? 'ВЫБРАНО' : owned ? 'КУПЛЕНО' : String(def.price);
+      const badgeStr = selected ? t('selectedBadge') : owned ? t('ownedBadge') : String(def.price);
       const badgeText = this.add.text(cx, cy + 44, badgeStr, {
         fontFamily: 'Arial, sans-serif', fontSize: '13px', fontStyle: 'bold', color: badgeColor
       }).setOrigin(0.5).setDepth(11);
@@ -1164,7 +1219,7 @@ class ShopScene extends Phaser.Scene {
       return;
     }
     if (this.meta.candy < def.price) {
-      this.flashToast('Не хватает конфет');
+      this.flashToast(t('notEnoughCandy'));
       return;
     }
     this.meta.candy -= def.price;
@@ -1195,4 +1250,15 @@ function startGame() {
   if (preload) preload.remove();
 }
 
-window.gameBridge.init().then(startGame);
+// Определяем язык интерфейса через SDK (п. 2.14 модерации Yandex Games —
+// язык не должен быть зашит намертво). Резолвим его один раз, до первого
+// scene.create(), чтобы все сцены строили UI сразу на правильном языке —
+// без "мигания" текста и без гонки между несколькими сценами, каждая из
+// которых независимо спрашивала бы SDK. Единственный сейчас поддерживаемый
+// язык — 'ru'; если платформа вернёт что-то другое, используем 'ru' как
+// дефолт, пока не появится соответствующий STRINGS.<lang>.
+window.gameBridge.init()
+  .then(() => window.gameBridge.getLang())
+  .then((lang) => { CURRENT_LANG = SUPPORTED_LANGS.includes(lang) ? lang : 'ru'; })
+  .catch(() => { CURRENT_LANG = 'ru'; })
+  .then(startGame);

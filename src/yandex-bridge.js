@@ -31,6 +31,18 @@ window.gameBridge = (function () {
   }
 
   // ---------- Заглушка для локального тестирования ----------
+  // Позволяет проверять автоопределение языка локально: ?lang=en в адресной
+  // строке подставляет этот код в environment.i18n.lang заглушки, как если
+  // бы именно такой язык вернул настоящий Yandex SDK. Без параметра — 'ru',
+  // как и должно быть по умолчанию вне платформы.
+  function mockLang() {
+    try {
+      return new URLSearchParams(window.location.search).get('lang') || 'ru';
+    } catch (e) {
+      return 'ru';
+    }
+  }
+
   function createMockSDK() {
     isMock = true;
     console.warn('[yandex-bridge] /sdk.js не найден — используется локальная заглушка для тестов.');
@@ -58,7 +70,7 @@ window.gameBridge = (function () {
           getItem: (k) => localStorage.getItem(k),
           setItem: (k, v) => localStorage.setItem(k, v)
         }),
-      environment: { i18n: { lang: 'ru' } }
+      environment: { i18n: { lang: mockLang() } }
     };
   }
 
@@ -116,6 +128,22 @@ window.gameBridge = (function () {
       whenReady().then(() => {
         try { ysdk.features.LoadingAPI?.ready(); } catch (e) {}
       });
+    },
+
+    /**
+     * Определение языка интерфейса Yandex Games (требование п. 2.14 модерации —
+     * никаких хардкодных языков, язык должен приходить из SDK). Дожидается
+     * готовности SDK и возвращает код языка платформы; если SDK недоступен или
+     * поле не пришло — фолбэк на 'ru'. Что делать с кодом, если игра его не
+     * поддерживает — решает вызывающий код (game.js), это не забота моста.
+     */
+    async getLang() {
+      await whenReady();
+      try {
+        return ysdk.environment.i18n.lang || 'ru';
+      } catch (e) {
+        return 'ru';
+      }
     },
 
     /**

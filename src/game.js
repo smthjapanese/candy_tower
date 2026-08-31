@@ -134,21 +134,160 @@ class MainScene extends Phaser.Scene {
       this.finishRun();
     });
 
-    // final game-over screen
-    this.goTitle = this.add.text(W/2, H/2 - 100, 'БАШНЯ РАССЫПАЛАСЬ', {
-      fontFamily: 'Arial, sans-serif', fontSize: '27px', fontStyle: 'bold', color: '#FF5C4D', align: 'center', wordWrap: {width: 320}
+    // final game-over screen (ported from the "Game Over Screen" design)
+    this.goTitle = this.add.text(W/2, 84, 'БАШНЯ РУХНУЛА', {
+      fontFamily: 'Arial, sans-serif', fontSize: '26px', fontStyle: 'bold', color: '#FF5C7A', align: 'center', wordWrap: {width: 340}
     }).setOrigin(0.5).setDepth(31).setVisible(false);
-    this.goScore = this.add.text(W/2, H/2 - 45, '', {
-      fontFamily: 'Arial, sans-serif', fontSize: '20px', color: PALETTE.textMain, align: 'center'
+
+    this.goScoreText = this.add.text(W/2, 154, '0', {
+      fontFamily: 'Arial, sans-serif', fontSize: '64px', fontStyle: 'bold', color: PALETTE.textMain
     }).setOrigin(0.5).setDepth(31).setVisible(false);
-    this.goMeta = this.add.text(W/2, H/2 + 5, '', {
-      fontFamily: 'Arial, sans-serif', fontSize: '15px', color: '#FFD166', align: 'center'
-    }).setOrigin(0.5).setDepth(31).setVisible(false);
-    this.goBtn = this.add.rectangle(W/2, H/2 + 75, 200, 56, 0xFF8FAB).setDepth(31).setVisible(false).setInteractive({useHandCursor:true});
-    this.goBtnText = this.add.text(W/2, H/2 + 75, 'ЕЩЁ РАЗ', {
-      fontFamily: 'Arial, sans-serif', fontSize: '20px', fontStyle: 'bold', color: '#2B160C'
+
+    // stat cards: "РЕКОРД" and "КОНФЕТЫ"
+    const statY = 262, cardW = 150, cardH = 76, cardGap = 14;
+    const recordCX = W/2 - (cardW + cardGap) / 2;
+    const candyCX = W/2 + (cardW + cardGap) / 2;
+    this.goStatGfx = this.add.graphics().setDepth(31).setVisible(false);
+    this.drawStatCard(this.goStatGfx, recordCX, statY, cardW, cardH, 18);
+    this.drawStatCard(this.goStatGfx, candyCX, statY, cardW, cardH, 18);
+
+    this.goRecordLabel = this.add.text(recordCX, statY - 20, 'РЕКОРД', {
+      fontFamily: 'Arial, sans-serif', fontSize: '13px', fontStyle: 'bold', color: PALETTE.textDim
     }).setOrigin(0.5).setDepth(32).setVisible(false);
-    this.goBtn.on('pointerdown', (p, x, y, e) => { e.stopPropagation(); this.restart(); });
+    this.goRecordValue = this.add.text(recordCX, statY + 12, '0', {
+      fontFamily: 'Arial, sans-serif', fontSize: '22px', fontStyle: 'bold', color: PALETTE.textMain
+    }).setOrigin(0.5).setDepth(32).setVisible(false);
+
+    this.goCandyIconGfx = this.add.graphics().setDepth(32).setVisible(false);
+    this.drawCandyIcon(this.goCandyIconGfx, candyCX - 24, statY + 12, 10);
+    this.goCandyLabel = this.add.text(candyCX, statY - 20, 'КОНФЕТЫ', {
+      fontFamily: 'Arial, sans-serif', fontSize: '13px', fontStyle: 'bold', color: PALETTE.textDim
+    }).setOrigin(0.5).setDepth(32).setVisible(false);
+    this.goCandyValue = this.add.text(candyCX + 4, statY + 12, '+0', {
+      fontFamily: 'Arial, sans-serif', fontSize: '22px', fontStyle: 'bold', color: PALETTE.textMain
+    }).setOrigin(0, 0.5).setDepth(32).setVisible(false);
+
+    // buttons row: candy-piped "ЕЩЁ РАЗ" retry pill + round share button
+    const btnY = 600, retryCX = 164, retryW = 210, retryH = 76, shareCX = 341, shareR = 28;
+    this.goRetryGfx = this.add.graphics().setDepth(31).setVisible(false);
+    this.drawCandyPillButton(this.goRetryGfx, retryCX, btnY, retryW, retryH, 0xFFB3C6, 0xFF6F97, 0x7A1F3D);
+    this.goRetryGfx.setInteractive({
+      hitArea: new Phaser.Geom.Rectangle(retryCX - retryW/2 - 18, btnY - retryH/2, retryW + 36, retryH),
+      hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+      useHandCursor: true
+    });
+    this.goRetryText = this.add.text(retryCX, btnY, 'ЕЩЁ РАЗ', {
+      fontFamily: 'Arial, sans-serif', fontSize: '24px', fontStyle: 'bold', color: PALETTE.textMain
+    }).setOrigin(0.5).setDepth(32).setVisible(false);
+
+    this.goShareGfx = this.add.graphics().setDepth(31).setVisible(false);
+    this.drawShareButton(this.goShareGfx, shareCX, btnY, shareR);
+    this.goShareGfx.setInteractive({
+      hitArea: new Phaser.Geom.Circle(shareCX, btnY, shareR),
+      hitAreaCallback: Phaser.Geom.Circle.Contains,
+      useHandCursor: true
+    });
+
+    this.goShareToast = this.add.text(shareCX, btnY - shareR - 18, '', {
+      fontFamily: 'Arial, sans-serif', fontSize: '13px', fontStyle: 'bold', color: PALETTE.textMain, align: 'center'
+    }).setOrigin(0.5).setDepth(33).setAlpha(0);
+
+    this.goElements = [
+      this.goTitle, this.goScoreText, this.goStatGfx,
+      this.goRecordLabel, this.goRecordValue, this.goCandyIconGfx, this.goCandyLabel, this.goCandyValue,
+      this.goRetryGfx, this.goRetryText, this.goShareGfx
+    ];
+
+    this.goRetryGfx.on('pointerdown', (p, x, y, e) => {
+      e.stopPropagation();
+      this.tweens.add({ targets: [this.goRetryGfx, this.goRetryText], scale: 0.95, duration: 70, yoyo: true, onComplete: () => this.restart() });
+    });
+    this.goShareGfx.on('pointerdown', (p, x, y, e) => {
+      e.stopPropagation();
+      this.tweens.add({ targets: this.goShareGfx, scale: 0.92, duration: 70, yoyo: true });
+      this.shareResult();
+    });
+  }
+
+  // ---------- game-over screen drawing helpers ----------
+  drawStatCard(gfx, cx, cy, w, h, radius) {
+    gfx.fillStyle(0x000000, 0.25);
+    gfx.fillRoundedRect(cx - w/2, cy - h/2, w, h, radius);
+    gfx.lineStyle(3, 0xFFF3E6, 0.2);
+    gfx.strokeRoundedRect(cx - w/2, cy - h/2, w, h, radius);
+  }
+
+  drawCandyIcon(gfx, cx, cy, r) {
+    gfx.fillGradientStyle(0xFFE9A8, 0xFFE9A8, 0xE8A93A, 0xE8A93A, 1);
+    gfx.fillCircle(cx, cy, r);
+    gfx.lineStyle(2, 0x8A5A12, 1);
+    gfx.strokeCircle(cx, cy, r);
+    gfx.fillStyle(0xffffff, 0.55);
+    gfx.fillEllipse(cx - r*0.3, cy - r*0.35, r*0.6, r*0.35);
+  }
+
+  // candy-wrapper pill button: triangular twist caps + glossy rounded body, echoes drawTwist()/drawBlock()
+  drawCandyPillButton(gfx, cx, cy, w, h, topColor, botColor, borderColor) {
+    const capLen = Math.min(18, h * 0.42);
+    const radius = h / 2;
+    gfx.fillStyle(borderColor, 1);
+    gfx.beginPath();
+    gfx.moveTo(cx - w/2, cy - h/2 + h*0.08);
+    gfx.lineTo(cx - w/2 - capLen, cy);
+    gfx.lineTo(cx - w/2, cy + h/2 - h*0.08);
+    gfx.closePath();
+    gfx.fillPath();
+    gfx.beginPath();
+    gfx.moveTo(cx + w/2, cy - h/2 + h*0.08);
+    gfx.lineTo(cx + w/2 + capLen, cy);
+    gfx.lineTo(cx + w/2, cy + h/2 - h*0.08);
+    gfx.closePath();
+    gfx.fillPath();
+
+    gfx.fillGradientStyle(topColor, topColor, botColor, botColor, 1);
+    gfx.fillRoundedRect(cx - w/2, cy - h/2, w, h, radius);
+    gfx.lineStyle(5, borderColor, 1);
+    gfx.strokeRoundedRect(cx - w/2, cy - h/2, w, h, radius);
+
+    gfx.fillStyle(0xffffff, 0.45);
+    gfx.fillRoundedRect(cx - w/2 + w*0.11, cy - h/2 + h*0.16, w*0.32, h*0.16, 6);
+    gfx.fillStyle(0xffffff, 0.55);
+    gfx.fillCircle(cx + w/2 - w*0.14, cy - h/2 + h*0.28, Math.max(3, h*0.08));
+  }
+
+  drawShareButton(gfx, cx, cy, r) {
+    gfx.fillStyle(0x000000, 0.28);
+    gfx.fillCircle(cx, cy, r);
+    gfx.lineStyle(3, 0xFFF3E6, 0.5);
+    gfx.strokeCircle(cx, cy, r);
+
+    const s = r * 0.42;
+    const p1 = { x: cx - s, y: cy + s*0.5 };
+    const p2 = { x: cx + s, y: cy - s };
+    const p3 = { x: cx + s, y: cy + s };
+    gfx.lineStyle(2, 0xFFF3E6, 0.9);
+    gfx.lineBetween(p1.x, p1.y, p2.x, p2.y);
+    gfx.lineBetween(p1.x, p1.y, p3.x, p3.y);
+    const dotR = Math.max(3, r * 0.15);
+    gfx.fillStyle(0xFFF3E6, 1);
+    gfx.fillCircle(p1.x, p1.y, dotR);
+    gfx.fillCircle(p2.x, p2.y, dotR);
+    gfx.fillCircle(p3.x, p3.y, dotR);
+  }
+
+  // ---------- share ----------
+  shareResult() {
+    const text = `Я построил Сладкую Башню высотой ${this.score} очков! Сможешь лучше?`;
+    if (navigator.share) {
+      navigator.share({ text }).catch(() => {});
+    } else if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => this.flashShareToast('Скопировано!')).catch(() => {});
+    }
+  }
+
+  flashShareToast(msg) {
+    this.goShareToast.setText(msg).setAlpha(1);
+    this.tweens.add({ targets: this.goShareToast, alpha: 0, delay: 700, duration: 350 });
   }
 
   showContinueOffer() {
@@ -195,11 +334,10 @@ class MainScene extends Phaser.Scene {
 
     const reveal = () => {
       this.overlay.setVisible(true);
-      this.goTitle.setVisible(true);
-      this.goScore.setText('Счёт: ' + this.score + '   •   Рекорд: ' + this.meta.best).setVisible(true);
-      this.goMeta.setText('+' + candyGained + ' конфет  •  всего: ' + this.meta.candy).setVisible(true);
-      this.goBtn.setVisible(true);
-      this.goBtnText.setVisible(true);
+      this.goScoreText.setText(String(this.score));
+      this.goRecordValue.setText(String(this.meta.best));
+      this.goCandyValue.setText('+' + candyGained);
+      this.goElements.forEach((el) => el.setVisible(true));
     };
 
     if (sessionDeathCount % INTERSTITIAL_EVERY === 0) {

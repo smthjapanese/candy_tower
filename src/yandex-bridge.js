@@ -35,7 +35,13 @@ window.gameBridge = (function () {
     isMock = true;
     console.warn('[yandex-bridge] /sdk.js не найден — используется локальная заглушка для тестов.');
     return {
-      features: { LoadingAPI: { ready: () => console.log('[mock] LoadingAPI.ready()') } },
+      features: {
+        LoadingAPI: { ready: () => console.log('[mock] LoadingAPI.ready()') },
+        GameplayAPI: {
+          start: () => console.log('[mock] GameplayAPI.start()'),
+          stop: () => console.log('[mock] GameplayAPI.stop()')
+        }
+      },
       adv: {
         showFullscreenAdv: ({ callbacks } = {}) => {
           console.log('[mock] показ межстраничной рекламы (пропущено)');
@@ -60,34 +66,41 @@ window.gameBridge = (function () {
     const script = document.createElement('script');
     script.src = '/sdk.js';
 
-    const timeout = setTimeout(() => {
-      // /sdk.js не откликнулся (мы не на платформе Yandex) — используем заглушку
+    // Settles the mock fallback at most once. /sdk.js либо грузится (onload),
+    // либо не существует и браузер сразу бьёт 404 (onerror) — это происходит
+    // быстро и надёжно, поэтому таймаут здесь только "аварийный" случай на
+    // случай, если запрос вообще завис (ни onload, ни onerror). Раньше таймаут
+    // был коротким (1.5с) и участвовал в гонке с реальной загрузкой — на
+    // медленной мобильной сети внутри самой платформы Yandex это могло
+    // подменить настоящий SDK заглушкой ещё до того, как /sdk.js успевал
+    // ответить, и игра навсегда оставалась без рекламы и облачных сохранений.
+    let settled = false;
+    const fallbackToMock = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
       ysdk = createMockSDK();
       resolveAllReady();
-    }, 1500);
+    };
+    const timeout = setTimeout(fallbackToMock, 8000);
 
     script.onload = () => {
+      if (settled) return; // аварийный таймаут уже сработал — не перезаписываем состояние
       clearTimeout(timeout);
       if (typeof YaGames === 'undefined') {
-        ysdk = createMockSDK();
-        resolveAllReady();
+        fallbackToMock();
         return;
       }
       YaGames.init()
         .then((sdk) => {
+          if (settled) return;
+          settled = true;
           ysdk = sdk;
           resolveAllReady();
         })
-        .catch(() => {
-          ysdk = createMockSDK();
-          resolveAllReady();
-        });
+        .catch(fallbackToMock);
     };
-    script.onerror = () => {
-      clearTimeout(timeout);
-      ysdk = createMockSDK();
-      resolveAllReady();
-    };
+    script.onerror = fallbackToMock;
     document.body.appendChild(script);
   }
 
@@ -102,6 +115,24 @@ window.gameBridge = (function () {
     ready() {
       whenReady().then(() => {
         try { ysdk.features.LoadingAPI?.ready(); } catch (e) {}
+      });
+    },
+
+    /**
+     * Сигналы GameplayAPI: сообщают платформе, идёт ли сейчас активный геймплей.
+     * Пока start() не "закрыт" через stop(), платформа не должна перекрывать
+     * игру интерстишлом — это требование Yandex Games к прохождению модерации.
+     * Вызывать start() при начале забега и stop() перед показом любой рекламы
+     * или на экране "game over"/предложении продолжить.
+     */
+    gameplayStart() {
+      whenReady().then(() => {
+        try { ysdk.features.GameplayAPI?.start(); } catch (e) {}
+      });
+    },
+    gameplayStop() {
+      whenReady().then(() => {
+        try { ysdk.features.GameplayAPI?.stop(); } catch (e) {}
       });
     },
 

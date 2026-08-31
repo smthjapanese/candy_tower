@@ -26,6 +26,11 @@ const PIVOT_X = W/2;
 const PIVOT_Y0 = BASE_Y + BLOCK_H;
 const INTERSTITIAL_EVERY = 2; // show an interstitial every Nth death
 
+// Persists across scene.restart() (which re-runs create() on the same scene
+// instance) so the "every Nth death" cadence actually accumulates over a
+// play session instead of resetting to 0 on every replay.
+let sessionDeathCount = 0;
+
 // shade(color, +0.4) lightens toward white, shade(color, -0.4) darkens toward black
 function shade(color, percent) {
   const r = (color >> 16) & 0xff, g = (color >> 8) & 0xff, b = color & 0xff;
@@ -46,7 +51,11 @@ class MainScene extends Phaser.Scene {
     this.makeParticleTexture();
 
     this.meta = { best: 0, candy: 0 };
-    window.gameBridge.loadData().then((m) => { this.meta = m; });
+    // loadData() is async and can resolve after a run already finished (e.g. slow
+    // storage on first load + a very fast death) — metaDirty guards against a late
+    // resolution stomping progress that finishRun() already wrote into this.meta.
+    this.metaDirty = false;
+    window.gameBridge.loadData().then((m) => { if (!this.metaDirty) this.meta = m; });
 
     this.stack = [];
     this.nextY = BASE_Y - BLOCK_H;
@@ -59,7 +68,6 @@ class MainScene extends Phaser.Scene {
     this.lean = 0;
     this.displayLean = 0;
     this.leanThreshold = LEAN_COLLAPSE;
-    this.deathCount = 0;
     this.usedContinue = false;
 
     this.stackContainer = this.add.container(PIVOT_X, PIVOT_Y0).setDepth(10);
@@ -90,6 +98,8 @@ class MainScene extends Phaser.Scene {
 
     // tell the platform the game is visually ready (first playable frame is up)
     window.gameBridge.ready();
+    // and that active gameplay has begun, so the platform holds off on interstitials
+    window.gameBridge.gameplayStart();
   }
 
   // ---------- overlay UI: continue offer + final game-over screen ----------
@@ -172,10 +182,12 @@ class MainScene extends Phaser.Scene {
     this.gameOver = false;
     this.hintText.setVisible(false);
     this.movingBlock = null;
+    window.gameBridge.gameplayStart();
     this.time.delayedCall(220, () => this.spawnMovingBlock());
   }
 
   finishRun() {
+    this.metaDirty = true;
     const candyGained = Math.floor(this.score / 10);
     this.meta.candy += candyGained;
     if (this.score > this.meta.best) this.meta.best = this.score;
@@ -190,7 +202,7 @@ class MainScene extends Phaser.Scene {
       this.goBtnText.setVisible(true);
     };
 
-    if (this.deathCount % INTERSTITIAL_EVERY === 0) {
+    if (sessionDeathCount % INTERSTITIAL_EVERY === 0) {
       window.gameBridge.showInterstitial(reveal);
     } else {
       reveal();
@@ -617,7 +629,8 @@ class MainScene extends Phaser.Scene {
   endGame() {
     this.gameOver = true;
     this.hintText.setVisible(false);
-    this.deathCount++;
+    window.gameBridge.gameplayStop();
+    sessionDeathCount++;
 
     this.time.delayedCall(450, () => {
       if (!this.usedContinue) {

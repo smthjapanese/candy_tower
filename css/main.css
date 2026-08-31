@@ -1,0 +1,37 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #2B160C;
+  height: 100%;
+  width: 100%;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#game-root {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+canvas {
+  display: block;
+}
+
+#preload-screen {
+  position: fixed;
+  inset: 0;
+  background: #2B160C;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  font-family: Arial, sans-serif;
+  color: #FFF3E6;
+  font-size: 16px;
+  letter-spacing: 0.05em;
+}

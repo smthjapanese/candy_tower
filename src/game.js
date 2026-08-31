@@ -42,6 +42,130 @@ function shade(color, percent) {
   return (nr << 16) | (ng << 8) | nb;
 }
 
+// ---------- persisted player state (shared across scenes) ----------
+function normalizeMeta(m) {
+  const ownedSkins = Array.isArray(m && m.ownedSkins) && m.ownedSkins.length ? m.ownedSkins.slice() : [0];
+  return {
+    best: (m && m.best) || 0,
+    candy: (m && m.candy) || 0,
+    skin: (m && Number.isInteger(m.skin)) ? m.skin : 0,
+    ownedSkins,
+    soundOn: !(m && m.soundOn === false)
+  };
+}
+
+// candy flavours sold in the shop — index 0 (Клубничный) mirrors PALETTE.tiers[0]
+// and is always owned/selected by default; the rest unlock with earned candy.
+const SKIN_DEFS = [
+  { name: 'Клубничный',   top: 0xFFB3C6, bot: 0xFF6F97, dark: 0x7A1F3D, price: 0 },
+  { name: 'Лимонный',     top: 0xFFE29A, bot: 0xF7B93B, dark: 0x8A5A12, price: 100 },
+  { name: 'Мятный',       top: 0xB8F0B8, bot: 0x5FC95F, dark: 0x2F6B3A, price: 150 },
+  { name: 'Виноградный',  top: 0xC9BBFF, bot: 0x8F72E8, dark: 0x443077, price: 250 },
+  { name: 'Апельсиновый', top: 0xFFCB7A, bot: 0xE8843C, dark: 0x7A4A18, price: 200 },
+  { name: 'Вишнёвый',     top: 0xFF9DAE, bot: 0xE8405F, dark: 0x7A1030, price: 300 }
+];
+
+// confetti dots for the main menu backdrop — [x, y, size, color]
+const MENU_CONFETTI = [
+  [24,60,4,0xFFD166],[340,90,3,0x8AE68A],[70,140,5,0xFF8FAB],[300,180,3,0xB39CFF],
+  [40,220,3,0xFF9F5A],[360,250,4,0xFF5C7A],[20,320,3,0xFFD166],[350,340,3,0x8AE68A],
+  [80,400,4,0xFF8FAB],[310,420,3,0xB39CFF],[30,470,3,0xFF9F5A],[370,500,4,0xFF5C7A],
+  [60,540,3,0xFFD166],[330,570,3,0x8AE68A],[15,600,4,0xFF8FAB],[380,620,3,0xB39CFF],
+  [100,90,3,0xFF5C7A],[280,120,4,0xFFD166],[120,470,3,0x8AE68A],[260,540,3,0xFF9F5A],
+  [150,40,3,0xB39CFF],[220,600,4,0xFF8FAB],[190,340,3,0xFFD166],[10,180,3,0x8AE68A]
+];
+
+// tells the platform once per page load that the game's first real screen is up
+let loadingReadySent = false;
+
+// ---------- shared candy-themed drawing helpers (used by every scene) ----------
+function fillBgGradient(gfx, w, h) {
+  gfx.fillGradientStyle(PALETTE.bgTop, PALETTE.bgTop, PALETTE.bgBottom, PALETTE.bgBottom, 1);
+  gfx.fillRect(0, 0, w, h);
+}
+
+function drawGlowCircle(gfx, cx, cy, r, alpha = 0.05) {
+  gfx.fillStyle(0xffffff, alpha);
+  gfx.fillCircle(cx, cy, r);
+}
+
+function drawPanel(gfx, cx, cy, w, h, radius, borderAlpha = 0.2) {
+  gfx.fillStyle(0x000000, 0.25);
+  gfx.fillRoundedRect(cx - w/2, cy - h/2, w, h, radius);
+  gfx.lineStyle(3, 0xFFF3E6, borderAlpha);
+  gfx.strokeRoundedRect(cx - w/2, cy - h/2, w, h, radius);
+}
+
+function drawStatCard(gfx, cx, cy, w, h, radius) {
+  drawPanel(gfx, cx, cy, w, h, radius, 0.2);
+}
+
+function drawCandyIcon(gfx, cx, cy, r) {
+  gfx.fillGradientStyle(0xFFE9A8, 0xFFE9A8, 0xE8A93A, 0xE8A93A, 1);
+  gfx.fillCircle(cx, cy, r);
+  gfx.lineStyle(2, 0x8A5A12, 1);
+  gfx.strokeCircle(cx, cy, r);
+  gfx.fillStyle(0xffffff, 0.55);
+  gfx.fillEllipse(cx - r*0.3, cy - r*0.35, r*0.6, r*0.35);
+}
+
+// candy-wrapper pill button: triangular twist caps + glossy rounded body, echoes drawTwist()/drawBlock()
+function drawCandyPillButton(gfx, cx, cy, w, h, topColor, botColor, borderColor) {
+  const capLen = Math.min(18, h * 0.42);
+  const radius = h / 2;
+  gfx.fillStyle(borderColor, 1);
+  gfx.beginPath();
+  gfx.moveTo(cx - w/2, cy - h/2 + h*0.08);
+  gfx.lineTo(cx - w/2 - capLen, cy);
+  gfx.lineTo(cx - w/2, cy + h/2 - h*0.08);
+  gfx.closePath();
+  gfx.fillPath();
+  gfx.beginPath();
+  gfx.moveTo(cx + w/2, cy - h/2 + h*0.08);
+  gfx.lineTo(cx + w/2 + capLen, cy);
+  gfx.lineTo(cx + w/2, cy + h/2 - h*0.08);
+  gfx.closePath();
+  gfx.fillPath();
+
+  gfx.fillGradientStyle(topColor, topColor, botColor, botColor, 1);
+  gfx.fillRoundedRect(cx - w/2, cy - h/2, w, h, radius);
+  gfx.lineStyle(5, borderColor, 1);
+  gfx.strokeRoundedRect(cx - w/2, cy - h/2, w, h, radius);
+
+  gfx.fillStyle(0xffffff, 0.45);
+  gfx.fillRoundedRect(cx - w/2 + w*0.11, cy - h/2 + h*0.16, w*0.32, h*0.16, 6);
+  gfx.fillStyle(0xffffff, 0.55);
+  gfx.fillCircle(cx + w/2 - w*0.14, cy - h/2 + h*0.28, Math.max(3, h*0.08));
+}
+
+function drawShareButton(gfx, cx, cy, r) {
+  gfx.fillStyle(0x000000, 0.28);
+  gfx.fillCircle(cx, cy, r);
+  gfx.lineStyle(3, 0xFFF3E6, 0.5);
+  gfx.strokeCircle(cx, cy, r);
+
+  const s = r * 0.42;
+  const p1 = { x: cx - s, y: cy + s*0.5 };
+  const p2 = { x: cx + s, y: cy - s };
+  const p3 = { x: cx + s, y: cy + s };
+  gfx.lineStyle(2, 0xFFF3E6, 0.9);
+  gfx.lineBetween(p1.x, p1.y, p2.x, p2.y);
+  gfx.lineBetween(p1.x, p1.y, p3.x, p3.y);
+  const dotR = Math.max(3, r * 0.15);
+  gfx.fillStyle(0xFFF3E6, 1);
+  gfx.fillCircle(p1.x, p1.y, dotR);
+  gfx.fillCircle(p2.x, p2.y, dotR);
+  gfx.fillCircle(p3.x, p3.y, dotR);
+}
+
+// round icon-button shell (sound toggle, pause button, and similar circular actions)
+function drawIconButton(gfx, cx, cy, r) {
+  gfx.fillStyle(0x000000, 0.28);
+  gfx.fillCircle(cx, cy, r);
+  gfx.lineStyle(3, 0xFFF3E6, 0.5);
+  gfx.strokeCircle(cx, cy, r);
+}
+
 class MainScene extends Phaser.Scene {
   constructor() { super('main'); }
 
@@ -50,18 +174,26 @@ class MainScene extends Phaser.Scene {
     this.drawBackground();
     this.makeParticleTexture();
 
-    this.meta = { best: 0, candy: 0 };
+    this.meta = normalizeMeta(null);
+    this.skinTiers = this.buildSkinTiers(this.meta.skin);
+    this.soundOn = this.meta.soundOn;
     // loadData() is async and can resolve after a run already finished (e.g. slow
     // storage on first load + a very fast death) — metaDirty guards against a late
     // resolution stomping progress that finishRun() already wrote into this.meta.
     this.metaDirty = false;
-    window.gameBridge.loadData().then((m) => { if (!this.metaDirty) this.meta = m; });
+    window.gameBridge.loadData().then((m) => {
+      if (this.metaDirty) return;
+      this.meta = normalizeMeta(m);
+      this.skinTiers = this.buildSkinTiers(this.meta.skin);
+      this.soundOn = this.meta.soundOn;
+    });
 
     this.stack = [];
     this.nextY = BASE_Y - BLOCK_H;
     this.score = 0;
     this.combo = 0;
     this.gameOver = false;
+    this.paused = false;
     this.swingSpeed = 0.0046;
     this.dropping = false;
     this.hazard = null;
@@ -91,15 +223,32 @@ class MainScene extends Phaser.Scene {
     this.stabBarBg = this.add.rectangle(W/2, 24, 200, 6, 0x2A1710, 0.7).setDepth(20);
     this.stabBarFill = this.add.rectangle(W/2, 24, 0, 6, 0x8AE68A).setOrigin(0.5, 0.5).setDepth(21);
 
+    this.pauseBtnGfx = this.add.graphics().setDepth(22);
+    drawIconButton(this.pauseBtnGfx, W - 34, 34, 20);
+    this.pauseBtnGfx.lineStyle(4, 0xFFF3E6, 0.9);
+    this.pauseBtnGfx.lineBetween(W - 34 - 6, 34 - 9, W - 34 - 6, 34 + 9);
+    this.pauseBtnGfx.lineBetween(W - 34 + 6, 34 - 9, W - 34 + 6, 34 + 9);
+    this.pauseBtnGfx.setInteractive({
+      hitArea: new Phaser.Geom.Circle(W - 34, 34, 20),
+      hitAreaCallback: Phaser.Geom.Circle.Contains,
+      useHandCursor: true
+    });
+    this.pauseBtnGfx.on('pointerdown', (p, x, y, e) => { e.stopPropagation(); this.openPause(); });
+
     this.spawnMovingBlock();
     this.input.on('pointerdown', () => { this.ensureAudio(); this.handleTap(); });
 
     this.buildOverlayUI();
+    this.buildPauseUI();
 
-    // tell the platform the game is visually ready (first playable frame is up)
-    window.gameBridge.ready();
     // and that active gameplay has begun, so the platform holds off on interstitials
     window.gameBridge.gameplayStart();
+  }
+
+  buildSkinTiers(skinIndex) {
+    const n = PALETTE.tiers.length;
+    const start = ((skinIndex % n) + n) % n;
+    return PALETTE.tiers.map((_, i) => PALETTE.tiers[(start + i) % n]);
   }
 
   // ---------- overlay UI: continue offer + final game-over screen ----------
@@ -148,8 +297,8 @@ class MainScene extends Phaser.Scene {
     const recordCX = W/2 - (cardW + cardGap) / 2;
     const candyCX = W/2 + (cardW + cardGap) / 2;
     this.goStatGfx = this.add.graphics().setDepth(31).setVisible(false);
-    this.drawStatCard(this.goStatGfx, recordCX, statY, cardW, cardH, 18);
-    this.drawStatCard(this.goStatGfx, candyCX, statY, cardW, cardH, 18);
+    drawStatCard(this.goStatGfx, recordCX, statY, cardW, cardH, 18);
+    drawStatCard(this.goStatGfx, candyCX, statY, cardW, cardH, 18);
 
     this.goRecordLabel = this.add.text(recordCX, statY - 20, 'РЕКОРД', {
       fontFamily: 'Arial, sans-serif', fontSize: '13px', fontStyle: 'bold', color: PALETTE.textDim
@@ -159,7 +308,7 @@ class MainScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(32).setVisible(false);
 
     this.goCandyIconGfx = this.add.graphics().setDepth(32).setVisible(false);
-    this.drawCandyIcon(this.goCandyIconGfx, candyCX - 24, statY + 12, 10);
+    drawCandyIcon(this.goCandyIconGfx, candyCX - 24, statY + 12, 10);
     this.goCandyLabel = this.add.text(candyCX, statY - 20, 'КОНФЕТЫ', {
       fontFamily: 'Arial, sans-serif', fontSize: '13px', fontStyle: 'bold', color: PALETTE.textDim
     }).setOrigin(0.5).setDepth(32).setVisible(false);
@@ -170,7 +319,7 @@ class MainScene extends Phaser.Scene {
     // buttons row: candy-piped "ЕЩЁ РАЗ" retry pill + round share button
     const btnY = 600, retryCX = 164, retryW = 210, retryH = 76, shareCX = 341, shareR = 28;
     this.goRetryGfx = this.add.graphics().setDepth(31).setVisible(false);
-    this.drawCandyPillButton(this.goRetryGfx, retryCX, btnY, retryW, retryH, 0xFFB3C6, 0xFF6F97, 0x7A1F3D);
+    drawCandyPillButton(this.goRetryGfx, retryCX, btnY, retryW, retryH, 0xFFB3C6, 0xFF6F97, 0x7A1F3D);
     this.goRetryGfx.setInteractive({
       hitArea: new Phaser.Geom.Rectangle(retryCX - retryW/2 - 18, btnY - retryH/2, retryW + 36, retryH),
       hitAreaCallback: Phaser.Geom.Rectangle.Contains,
@@ -181,7 +330,7 @@ class MainScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(32).setVisible(false);
 
     this.goShareGfx = this.add.graphics().setDepth(31).setVisible(false);
-    this.drawShareButton(this.goShareGfx, shareCX, btnY, shareR);
+    drawShareButton(this.goShareGfx, shareCX, btnY, shareR);
     this.goShareGfx.setInteractive({
       hitArea: new Phaser.Geom.Circle(shareCX, btnY, shareR),
       hitAreaCallback: Phaser.Geom.Circle.Contains,
@@ -209,70 +358,71 @@ class MainScene extends Phaser.Scene {
     });
   }
 
-  // ---------- game-over screen drawing helpers ----------
-  drawStatCard(gfx, cx, cy, w, h, radius) {
-    gfx.fillStyle(0x000000, 0.25);
-    gfx.fillRoundedRect(cx - w/2, cy - h/2, w, h, radius);
-    gfx.lineStyle(3, 0xFFF3E6, 0.2);
-    gfx.strokeRoundedRect(cx - w/2, cy - h/2, w, h, radius);
+  // ---------- pause overlay (reuses the shared dark backdrop) ----------
+  buildPauseUI() {
+    const px = W/2;
+    this.pauseTitle = this.add.text(px, H/2 - 190, 'ПАУЗА', {
+      fontFamily: 'Arial, sans-serif', fontSize: '40px', fontStyle: 'bold', color: PALETTE.textMain
+    }).setOrigin(0.5).setDepth(31).setVisible(false);
+
+    const resumeY = H/2 - 60, resumeW = 230, resumeH = 76;
+    this.pauseResumeGfx = this.add.graphics().setDepth(31).setVisible(false);
+    drawCandyPillButton(this.pauseResumeGfx, px, resumeY, resumeW, resumeH, 0xFFB3C6, 0xFF6F97, 0x7A1F3D);
+    this.pauseResumeGfx.setInteractive({
+      hitArea: new Phaser.Geom.Rectangle(px - resumeW/2 - 18, resumeY - resumeH/2, resumeW + 36, resumeH),
+      hitAreaCallback: Phaser.Geom.Rectangle.Contains, useHandCursor: true
+    });
+    this.pauseResumeText = this.add.text(px, resumeY, 'ПРОДОЛЖИТЬ', {
+      fontFamily: 'Arial, sans-serif', fontSize: '22px', fontStyle: 'bold', color: PALETTE.textMain
+    }).setOrigin(0.5).setDepth(32).setVisible(false);
+
+    const restartY = resumeY + 92, restartW = 230, restartH = 60;
+    this.pauseRestartGfx = this.add.graphics().setDepth(31).setVisible(false);
+    drawCandyPillButton(this.pauseRestartGfx, px, restartY, restartW, restartH, 0xFFE29A, 0xF7B93B, 0x8A5A12);
+    this.pauseRestartGfx.setInteractive({
+      hitArea: new Phaser.Geom.Rectangle(px - restartW/2 - 16, restartY - restartH/2, restartW + 32, restartH),
+      hitAreaCallback: Phaser.Geom.Rectangle.Contains, useHandCursor: true
+    });
+    this.pauseRestartText = this.add.text(px, restartY, 'ЗАНОВО', {
+      fontFamily: 'Arial, sans-serif', fontSize: '19px', fontStyle: 'bold', color: PALETTE.textMain
+    }).setOrigin(0.5).setDepth(32).setVisible(false);
+
+    const menuY = restartY + 76, menuW = 230, menuH = 60;
+    this.pauseMenuGfx = this.add.graphics().setDepth(31).setVisible(false);
+    drawCandyPillButton(this.pauseMenuGfx, px, menuY, menuW, menuH, 0xC9BBFF, 0x8F72E8, 0x443077);
+    this.pauseMenuGfx.setInteractive({
+      hitArea: new Phaser.Geom.Rectangle(px - menuW/2 - 16, menuY - menuH/2, menuW + 32, menuH),
+      hitAreaCallback: Phaser.Geom.Rectangle.Contains, useHandCursor: true
+    });
+    this.pauseMenuText = this.add.text(px, menuY, 'В МЕНЮ', {
+      fontFamily: 'Arial, sans-serif', fontSize: '19px', fontStyle: 'bold', color: PALETTE.textMain
+    }).setOrigin(0.5).setDepth(32).setVisible(false);
+
+    this.pauseElements = [
+      this.pauseTitle, this.pauseResumeGfx, this.pauseResumeText,
+      this.pauseRestartGfx, this.pauseRestartText, this.pauseMenuGfx, this.pauseMenuText
+    ];
+
+    this.pauseResumeGfx.on('pointerdown', (p, x, y, e) => { e.stopPropagation(); this.closePause(); });
+    this.pauseRestartGfx.on('pointerdown', (p, x, y, e) => { e.stopPropagation(); this.restart(); });
+    this.pauseMenuGfx.on('pointerdown', (p, x, y, e) => { e.stopPropagation(); this.scene.start('menu'); });
   }
 
-  drawCandyIcon(gfx, cx, cy, r) {
-    gfx.fillGradientStyle(0xFFE9A8, 0xFFE9A8, 0xE8A93A, 0xE8A93A, 1);
-    gfx.fillCircle(cx, cy, r);
-    gfx.lineStyle(2, 0x8A5A12, 1);
-    gfx.strokeCircle(cx, cy, r);
-    gfx.fillStyle(0xffffff, 0.55);
-    gfx.fillEllipse(cx - r*0.3, cy - r*0.35, r*0.6, r*0.35);
+  openPause() {
+    if (this.gameOver || this.paused) return;
+    this.paused = true;
+    this.tweens.pauseAll(); // freezes any in-flight drop/merge/collapse tween until resumed
+    window.gameBridge.gameplayStop();
+    this.overlay.setVisible(true);
+    this.pauseElements.forEach((el) => el.setVisible(true));
   }
 
-  // candy-wrapper pill button: triangular twist caps + glossy rounded body, echoes drawTwist()/drawBlock()
-  drawCandyPillButton(gfx, cx, cy, w, h, topColor, botColor, borderColor) {
-    const capLen = Math.min(18, h * 0.42);
-    const radius = h / 2;
-    gfx.fillStyle(borderColor, 1);
-    gfx.beginPath();
-    gfx.moveTo(cx - w/2, cy - h/2 + h*0.08);
-    gfx.lineTo(cx - w/2 - capLen, cy);
-    gfx.lineTo(cx - w/2, cy + h/2 - h*0.08);
-    gfx.closePath();
-    gfx.fillPath();
-    gfx.beginPath();
-    gfx.moveTo(cx + w/2, cy - h/2 + h*0.08);
-    gfx.lineTo(cx + w/2 + capLen, cy);
-    gfx.lineTo(cx + w/2, cy + h/2 - h*0.08);
-    gfx.closePath();
-    gfx.fillPath();
-
-    gfx.fillGradientStyle(topColor, topColor, botColor, botColor, 1);
-    gfx.fillRoundedRect(cx - w/2, cy - h/2, w, h, radius);
-    gfx.lineStyle(5, borderColor, 1);
-    gfx.strokeRoundedRect(cx - w/2, cy - h/2, w, h, radius);
-
-    gfx.fillStyle(0xffffff, 0.45);
-    gfx.fillRoundedRect(cx - w/2 + w*0.11, cy - h/2 + h*0.16, w*0.32, h*0.16, 6);
-    gfx.fillStyle(0xffffff, 0.55);
-    gfx.fillCircle(cx + w/2 - w*0.14, cy - h/2 + h*0.28, Math.max(3, h*0.08));
-  }
-
-  drawShareButton(gfx, cx, cy, r) {
-    gfx.fillStyle(0x000000, 0.28);
-    gfx.fillCircle(cx, cy, r);
-    gfx.lineStyle(3, 0xFFF3E6, 0.5);
-    gfx.strokeCircle(cx, cy, r);
-
-    const s = r * 0.42;
-    const p1 = { x: cx - s, y: cy + s*0.5 };
-    const p2 = { x: cx + s, y: cy - s };
-    const p3 = { x: cx + s, y: cy + s };
-    gfx.lineStyle(2, 0xFFF3E6, 0.9);
-    gfx.lineBetween(p1.x, p1.y, p2.x, p2.y);
-    gfx.lineBetween(p1.x, p1.y, p3.x, p3.y);
-    const dotR = Math.max(3, r * 0.15);
-    gfx.fillStyle(0xFFF3E6, 1);
-    gfx.fillCircle(p1.x, p1.y, dotR);
-    gfx.fillCircle(p2.x, p2.y, dotR);
-    gfx.fillCircle(p3.x, p3.y, dotR);
+  closePause() {
+    this.paused = false;
+    this.tweens.resumeAll();
+    this.overlay.setVisible(false);
+    this.pauseElements.forEach((el) => el.setVisible(false));
+    window.gameBridge.gameplayStart();
   }
 
   // ---------- share ----------
@@ -356,7 +506,7 @@ class MainScene extends Phaser.Scene {
     if (this.audioCtx && this.audioCtx.state === 'suspended') this.audioCtx.resume();
   }
   tone(freq, duration, type, gain) {
-    if (!this.audioCtx) return;
+    if (!this.soundOn || !this.audioCtx) return;
     try {
       const ctx = this.audioCtx;
       const osc = ctx.createOscillator();
@@ -375,7 +525,7 @@ class MainScene extends Phaser.Scene {
   sndMerge(tier) { this.tone(480 + tier * 90, 0.18, 'triangle', 0.16); }
   sndBonus()   { this.tone(700, 0.08, 'square', 0.1); this.tone(950, 0.12, 'square', 0.1); }
   sndCollapse() {
-    if (!this.audioCtx) return;
+    if (!this.soundOn || !this.audioCtx) return;
     try {
       const ctx = this.audioCtx;
       const osc = ctx.createOscillator();
@@ -453,7 +603,7 @@ class MainScene extends Phaser.Scene {
 
   drawBlock(gfx, x, y, w, tier, h = BLOCK_H) {
     gfx.clear();
-    const base = tier === -1 ? PALETTE.base : PALETTE.tiers[Math.min(tier, PALETTE.tiers.length-1)];
+    const base = tier === -1 ? PALETTE.base : this.skinTiers[Math.min(tier, this.skinTiers.length-1)];
     const light = shade(base, tier === -1 ? 0.18 : 0.30);
     const dark = shade(base, tier === -1 ? -0.20 : -0.20);
     const outline = tier === -1 ? shade(base, -0.5) : shade(base, -0.45);
@@ -533,7 +683,7 @@ class MainScene extends Phaser.Scene {
   }
 
   update(time, delta) {
-    if (this.gameOver) return;
+    if (this.gameOver || this.paused) return;
 
     this.displayLean = Phaser.Math.Linear(this.displayLean, this.lean, 0.07);
     this.stackContainer.rotation = Phaser.Math.Clamp(this.displayLean / 140, -0.5, 0.5);
@@ -559,7 +709,7 @@ class MainScene extends Phaser.Scene {
   }
 
   handleTap() {
-    if (this.gameOver || this.dropping || !this.movingBlock) return;
+    if (this.gameOver || this.paused || this.dropping || !this.movingBlock) return;
     this.dropping = true;
 
     const top = this.stack[this.stack.length - 1];
@@ -703,7 +853,7 @@ class MainScene extends Phaser.Scene {
 
         keep.tier = newTier;
         this.drawBlock(keep.gfx, keep.x - PIVOT_X - keep.w/2, keep.y - PIVOT_Y0, keep.w, newTier);
-        this.burstAt(keep.x, keep.y - BLOCK_H/2, PALETTE.tiers[Math.min(newTier, PALETTE.tiers.length-1)], 16);
+        this.burstAt(keep.x, keep.y - BLOCK_H/2, this.skinTiers[Math.min(newTier, this.skinTiers.length-1)], 16);
 
         this.stack.pop();
         this.nextY += BLOCK_H;
@@ -784,6 +934,252 @@ class MainScene extends Phaser.Scene {
   }
 }
 
+// ---------- main menu (ported from the "Main Menu" design) ----------
+class MenuScene extends Phaser.Scene {
+  constructor() { super('menu'); }
+
+  create() {
+    this.meta = normalizeMeta(null);
+
+    const bg = this.add.graphics();
+    fillBgGradient(bg, W, H);
+    drawGlowCircle(bg, 20, 20, 110, 0.05);
+    drawGlowCircle(bg, W + 30, 200, 90, 0.04);
+    drawGlowCircle(bg, -10, 560, 100, 0.05);
+    drawGlowCircle(bg, W + 10, 640, 85, 0.04);
+
+    const confettiGfx = this.add.graphics();
+    MENU_CONFETTI.forEach(([x, y, s, c]) => {
+      confettiGfx.fillStyle(c, 0.55);
+      if (s > 3) confettiGfx.fillRoundedRect(x, y, s, s, 2);
+      else confettiGfx.fillCircle(x, y, s);
+    });
+
+    this.add.text(W/2, 80, 'СЛАДКАЯ', {
+      fontFamily: 'Arial, sans-serif', fontSize: '44px', fontStyle: 'bold', color: PALETTE.textMain, align: 'center'
+    }).setOrigin(0.5).setDepth(10);
+    this.add.text(W/2, 126, 'БАШНЯ', {
+      fontFamily: 'Arial, sans-serif', fontSize: '44px', fontStyle: 'bold', color: '#FF8FAB', align: 'center'
+    }).setOrigin(0.5).setDepth(10);
+
+    // sound toggle
+    const soundCX = W - 46, soundCY = 46, soundR = 24;
+    this.soundGfx = this.add.graphics().setDepth(11);
+    this.soundGfx.setInteractive({
+      hitArea: new Phaser.Geom.Circle(soundCX, soundCY, soundR),
+      hitAreaCallback: Phaser.Geom.Circle.Contains, useHandCursor: true
+    });
+    this.soundGfx.on('pointerdown', (p, x, y, e) => { e.stopPropagation(); this.toggleSound(); });
+    this.drawSoundIcon(soundCX, soundCY, soundR);
+
+    // play button
+    const playY = 240, playW = 220, playH = 84;
+    const playGfx = this.add.graphics().setDepth(10);
+    drawCandyPillButton(playGfx, W/2, playY, playW, playH, 0xFFB3C6, 0xFF6F97, 0x7A1F3D);
+    playGfx.setInteractive({
+      hitArea: new Phaser.Geom.Rectangle(W/2 - playW/2 - 18, playY - playH/2, playW + 36, playH),
+      hitAreaCallback: Phaser.Geom.Rectangle.Contains, useHandCursor: true
+    });
+    const playText = this.add.text(W/2, playY, 'ИГРАТЬ', {
+      fontFamily: 'Arial, sans-serif', fontSize: '30px', fontStyle: 'bold', color: PALETTE.textMain
+    }).setOrigin(0.5).setDepth(11);
+    playGfx.on('pointerdown', (p, x, y, e) => {
+      e.stopPropagation();
+      this.tweens.add({ targets: [playGfx, playText], scale: 0.95, duration: 70, yoyo: true, onComplete: () => this.scene.start('main') });
+    });
+
+    // shop + settings row
+    const rowY = playY + 96, btnW = 130, btnH = 56, gap = 44;
+    const shopCX = W/2 - (btnW + gap)/2, setCX = W/2 + (btnW + gap)/2;
+
+    const shopGfx = this.add.graphics().setDepth(10);
+    drawCandyPillButton(shopGfx, shopCX, rowY, btnW, btnH, 0xFFE29A, 0xF7B93B, 0x8A5A12);
+    shopGfx.setInteractive({
+      hitArea: new Phaser.Geom.Rectangle(shopCX - btnW/2 - 14, rowY - btnH/2, btnW + 28, btnH),
+      hitAreaCallback: Phaser.Geom.Rectangle.Contains, useHandCursor: true
+    });
+    this.add.text(shopCX, rowY, 'МАГАЗИН', {
+      fontFamily: 'Arial, sans-serif', fontSize: '16px', fontStyle: 'bold', color: PALETTE.textMain
+    }).setOrigin(0.5).setDepth(11);
+    shopGfx.on('pointerdown', (p, x, y, e) => { e.stopPropagation(); this.scene.start('shop'); });
+
+    const setGfx = this.add.graphics().setDepth(10);
+    drawCandyPillButton(setGfx, setCX, rowY, btnW, btnH, 0xB8F0B8, 0x5FC95F, 0x2F6B3A);
+    setGfx.setInteractive({
+      hitArea: new Phaser.Geom.Rectangle(setCX - btnW/2 - 14, rowY - btnH/2, btnW + 28, btnH),
+      hitAreaCallback: Phaser.Geom.Rectangle.Contains, useHandCursor: true
+    });
+    this.add.text(setCX, rowY, 'НАСТРОЙКИ', {
+      fontFamily: 'Arial, sans-serif', fontSize: '15px', fontStyle: 'bold', color: PALETTE.textMain
+    }).setOrigin(0.5).setDepth(11);
+    // no dedicated settings screen exists yet — audio is the only real setting,
+    // so this button routes to the same toggle as the icon above
+    setGfx.on('pointerdown', (p, x, y, e) => { e.stopPropagation(); this.toggleSound(); });
+
+    this.bestText = this.add.text(W/2, H - 26, 'РЕКОРД: 0', {
+      fontFamily: 'Arial, sans-serif', fontSize: '15px', fontStyle: 'bold', color: PALETTE.textDim
+    }).setOrigin(0.5).setDepth(10);
+
+    window.gameBridge.loadData().then((m) => {
+      this.meta = normalizeMeta(m);
+      this.bestText.setText('РЕКОРД: ' + this.meta.best);
+      this.drawSoundIcon(soundCX, soundCY, soundR);
+    });
+
+    // first true "playable" paint of the game — tell the platform loading is done
+    if (!loadingReadySent) {
+      loadingReadySent = true;
+      window.gameBridge.ready();
+    }
+  }
+
+  drawSoundIcon(cx, cy, r) {
+    this.soundGfx.clear();
+    drawIconButton(this.soundGfx, cx, cy, r);
+    this.soundGfx.fillStyle(0xFFF3E6, 1);
+    this.soundGfx.fillRect(cx - 9, cy - 4, 6, 8);
+    this.soundGfx.beginPath();
+    this.soundGfx.moveTo(cx - 3, cy - 4);
+    this.soundGfx.lineTo(cx + 5, cy - 9);
+    this.soundGfx.lineTo(cx + 5, cy + 9);
+    this.soundGfx.lineTo(cx - 3, cy + 4);
+    this.soundGfx.closePath();
+    this.soundGfx.fillPath();
+    if (!this.meta.soundOn) {
+      this.soundGfx.lineStyle(2, 0xFFF3E6, 0.95);
+      this.soundGfx.lineBetween(cx + 2, cy - 8, cx + 12, cy + 8);
+      this.soundGfx.lineBetween(cx + 12, cy - 8, cx + 2, cy + 8);
+    }
+  }
+
+  toggleSound() {
+    this.meta.soundOn = !this.meta.soundOn;
+    window.gameBridge.saveData(this.meta);
+    this.drawSoundIcon(W - 46, 46, 24);
+  }
+}
+
+// ---------- shop (ported from the "Shop Screen" design) ----------
+class ShopScene extends Phaser.Scene {
+  constructor() { super('shop'); }
+
+  create() {
+    this.meta = normalizeMeta(null);
+    this.cardObjects = [];
+
+    const bg = this.add.graphics();
+    fillBgGradient(bg, W, H);
+    drawGlowCircle(bg, W + 40, 20, 100, 0.05);
+    drawGlowCircle(bg, -30, 470, 100, 0.04);
+
+    this.add.text(24, 40, 'МАГАЗИН', {
+      fontFamily: 'Arial, sans-serif', fontSize: '26px', fontStyle: 'bold', color: PALETTE.textMain
+    }).setOrigin(0, 0.5).setDepth(10);
+
+    this.currencyGfx = this.add.graphics().setDepth(10);
+    this.currencyText = this.add.text(0, 40, '0', {
+      fontFamily: 'Arial, sans-serif', fontSize: '18px', fontStyle: 'bold', color: PALETTE.textMain
+    }).setOrigin(0, 0.5).setDepth(11);
+
+    this.toast = this.add.text(W/2, 490, '', {
+      fontFamily: 'Arial, sans-serif', fontSize: '14px', fontStyle: 'bold', color: '#FF5C7A', align: 'center'
+    }).setOrigin(0.5).setDepth(12).setAlpha(0);
+
+    const backY = 640, backW = 170, backH = 58;
+    const backGfx = this.add.graphics().setDepth(10);
+    drawCandyPillButton(backGfx, W/2, backY, backW, backH, 0xC9BBFF, 0x8F72E8, 0x443077);
+    backGfx.setInteractive({
+      hitArea: new Phaser.Geom.Rectangle(W/2 - backW/2 - 14, backY - backH/2, backW + 28, backH),
+      hitAreaCallback: Phaser.Geom.Rectangle.Contains, useHandCursor: true
+    });
+    this.add.text(W/2, backY, 'НАЗАД', {
+      fontFamily: 'Arial, sans-serif', fontSize: '19px', fontStyle: 'bold', color: PALETTE.textMain
+    }).setOrigin(0.5).setDepth(11);
+    backGfx.on('pointerdown', (p, x, y, e) => { e.stopPropagation(); this.scene.start('menu'); });
+
+    this.renderGrid();
+    window.gameBridge.loadData().then((m) => {
+      this.meta = normalizeMeta(m);
+      this.renderGrid();
+    });
+  }
+
+  renderCurrency() {
+    this.currencyGfx.clear();
+    const cx = W - 90, cy = 40;
+    drawPanel(this.currencyGfx, cx + 34, cy, 96, 34, 17, 0.35);
+    drawCandyIcon(this.currencyGfx, cx, cy, 13);
+    this.currencyText.setText(String(this.meta.candy)).setPosition(cx + 20, cy);
+  }
+
+  renderGrid() {
+    this.renderCurrency();
+    this.cardObjects.forEach((o) => o.destroy());
+    this.cardObjects = [];
+
+    const cardW = 164, cardH = 150, gap = 14;
+    const col = [W/2 - (cardW + gap)/2, W/2 + (cardW + gap)/2];
+    const rowTop = 110;
+    const row = [rowTop + cardH/2, rowTop + cardH/2 + (cardH + gap), rowTop + cardH/2 + 2*(cardH + gap)];
+
+    SKIN_DEFS.forEach((def, i) => {
+      const cx = col[i % 2];
+      const cy = row[Math.floor(i / 2)];
+      const owned = this.meta.ownedSkins.includes(i);
+      const selected = this.meta.skin === i;
+
+      const gfx = this.add.graphics().setDepth(10);
+      drawPanel(gfx, cx, cy, cardW, cardH, 18, selected ? 0.9 : 0.18);
+      drawCandyPillButton(gfx, cx, cy - 30, 104, 42, def.top, def.bot, def.dark);
+      gfx.setInteractive({
+        hitArea: new Phaser.Geom.Rectangle(cx - cardW/2, cy - cardH/2, cardW, cardH),
+        hitAreaCallback: Phaser.Geom.Rectangle.Contains, useHandCursor: true
+      });
+      gfx.on('pointerdown', (p, x, y, e) => { e.stopPropagation(); this.onCardTap(i); });
+      this.cardObjects.push(gfx);
+
+      const nameText = this.add.text(cx, cy + 16, def.name, {
+        fontFamily: 'Arial, sans-serif', fontSize: '15px', fontStyle: 'bold', color: PALETTE.textMain
+      }).setOrigin(0.5).setDepth(11);
+      this.cardObjects.push(nameText);
+
+      const badgeColor = selected ? '#FFD166' : owned ? PALETTE.textDim : PALETTE.textMain;
+      const badgeStr = selected ? 'ВЫБРАНО' : owned ? 'КУПЛЕНО' : String(def.price);
+      const badgeText = this.add.text(cx, cy + 44, badgeStr, {
+        fontFamily: 'Arial, sans-serif', fontSize: '13px', fontStyle: 'bold', color: badgeColor
+      }).setOrigin(0.5).setDepth(11);
+      this.cardObjects.push(badgeText);
+    });
+  }
+
+  onCardTap(index) {
+    const def = SKIN_DEFS[index];
+    const owned = this.meta.ownedSkins.includes(index);
+    if (owned) {
+      if (this.meta.skin !== index) {
+        this.meta.skin = index;
+        window.gameBridge.saveData(this.meta);
+        this.renderGrid();
+      }
+      return;
+    }
+    if (this.meta.candy < def.price) {
+      this.flashToast('Не хватает конфет');
+      return;
+    }
+    this.meta.candy -= def.price;
+    this.meta.ownedSkins.push(index);
+    this.meta.skin = index;
+    window.gameBridge.saveData(this.meta);
+    this.renderGrid();
+  }
+
+  flashToast(msg) {
+    this.toast.setText(msg).setAlpha(1);
+    this.tweens.add({ targets: this.toast, alpha: 0, delay: 700, duration: 350 });
+  }
+}
+
 function startGame() {
   const config = {
     type: Phaser.AUTO,
@@ -791,7 +1187,7 @@ function startGame() {
     height: H,
     parent: 'game-root',
     backgroundColor: '#2B160C',
-    scene: MainScene,
+    scene: [MenuScene, MainScene, ShopScene],
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH }
   };
   new Phaser.Game(config);

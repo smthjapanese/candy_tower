@@ -26,6 +26,12 @@ const PIVOT_X = W/2;
 const PIVOT_Y0 = BASE_Y + BLOCK_H;
 const INTERSTITIAL_EVERY = 2; // show an interstitial every Nth death
 
+// Technical name of the Yandex Games leaderboard this game submits to. Must
+// be created in the developer console first (numeric type, descending order)
+// — see README. Submitting to a leaderboard that doesn't exist yet is a
+// harmless no-op (yandex-bridge swallows the error).
+const LEADERBOARD_NAME = 'candyTowerHeight';
+
 // Persists across scene.restart() (which re-runs create() on the same scene
 // instance) so the "every Nth death" cadence actually accumulates over a
 // play session instead of resetting to 0 on every replay.
@@ -103,7 +109,11 @@ const STRINGS = {
     notEnoughCandy: 'Не хватает конфет',
     selectedBadge: 'ВЫБРАНО',
     ownedBadge: 'КУПЛЕНО',
-    skinNames: ['Клубничный', 'Лимонный', 'Мятный', 'Виноградный', 'Апельсиновый', 'Вишнёвый']
+    skinNames: ['Клубничный', 'Лимонный', 'Мятный', 'Виноградный', 'Апельсиновый', 'Вишнёвый'],
+    leaderboard: 'РЕЙТИНГ',
+    leaderboardLoading: 'Загрузка…',
+    leaderboardEmpty: 'Рейтинг пока недоступен',
+    you: 'ТЫ'
   }
 };
 
@@ -219,6 +229,23 @@ function drawIconButton(gfx, cx, cy, r) {
   gfx.fillCircle(cx, cy, r);
   gfx.lineStyle(3, 0xFFF3E6, 0.5);
   gfx.strokeCircle(cx, cy, r);
+}
+
+// trophy icon inside the shared round icon-button shell — opens the leaderboard
+function drawTrophyIcon(gfx, cx, cy, r) {
+  drawIconButton(gfx, cx, cy, r);
+  const cupW = r * 0.85, cupH = r * 0.62, cupTopY = cy - r * 0.5;
+  gfx.lineStyle(2.5, 0xFFF3E6, 0.95);
+  gfx.beginPath();
+  gfx.arc(cx - cupW/2, cupTopY + cupH * 0.32, r * 0.24, Phaser.Math.DegToRad(80), Phaser.Math.DegToRad(280), true);
+  gfx.strokePath();
+  gfx.beginPath();
+  gfx.arc(cx + cupW/2, cupTopY + cupH * 0.32, r * 0.24, Phaser.Math.DegToRad(-80), Phaser.Math.DegToRad(100), true);
+  gfx.strokePath();
+  gfx.fillStyle(0xFFF3E6, 1);
+  gfx.fillRoundedRect(cx - cupW/2, cupTopY, cupW, cupH, 4);
+  gfx.fillRect(cx - 2, cupTopY + cupH, 4, r * 0.28);
+  gfx.fillRoundedRect(cx - r * 0.38, cupTopY + cupH + r * 0.28, r * 0.76, 4, 2);
 }
 
 class MainScene extends Phaser.Scene {
@@ -534,8 +561,13 @@ class MainScene extends Phaser.Scene {
     this.metaDirty = true;
     const candyGained = Math.floor(this.score / 10);
     this.meta.candy += candyGained;
-    if (this.score > this.meta.best) this.meta.best = this.score;
+    const isNewBest = this.score > this.meta.best;
+    if (isNewBest) this.meta.best = this.score;
     window.gameBridge.saveData(this.meta);
+    // Only push to the leaderboard on an actual improvement — setLeaderboardScore
+    // overwrites the previous entry unconditionally, so submitting every run
+    // (including worse ones) would let a bad run erase a good one.
+    if (isNewBest) window.gameBridge.setLeaderboardScore(LEADERBOARD_NAME, this.score);
 
     const reveal = () => {
       this.overlay.setVisible(true);
@@ -1017,6 +1049,16 @@ class MenuScene extends Phaser.Scene {
       fontFamily: 'Arial, sans-serif', fontSize: '44px', fontStyle: 'bold', color: '#FF8FAB', align: 'center'
     }).setOrigin(0.5).setDepth(10);
 
+    // leaderboard button (mirrors the sound toggle, top-left corner)
+    const lbCX = 46, lbCY = 46, lbR = 24;
+    const lbGfx = this.add.graphics().setDepth(11);
+    drawTrophyIcon(lbGfx, lbCX, lbCY, lbR);
+    lbGfx.setInteractive({
+      hitArea: new Phaser.Geom.Circle(lbCX, lbCY, lbR),
+      hitAreaCallback: Phaser.Geom.Circle.Contains, useHandCursor: true
+    });
+    lbGfx.on('pointerdown', (p, x, y, e) => { e.stopPropagation(); this.scene.start('leaderboard'); });
+
     // sound toggle
     const soundCX = W - 46, soundCY = 46, soundR = 24;
     this.soundGfx = this.add.graphics().setDepth(11);
@@ -1235,6 +1277,81 @@ class ShopScene extends Phaser.Scene {
   }
 }
 
+// ---------- leaderboard (Yandex SDK ysdk.getLeaderboards(), see yandex-bridge.js) ----------
+class LeaderboardScene extends Phaser.Scene {
+  constructor() { super('leaderboard'); }
+
+  create() {
+    this.rowObjects = [];
+
+    const bg = this.add.graphics();
+    fillBgGradient(bg, W, H);
+    drawGlowCircle(bg, W + 40, 20, 100, 0.05);
+    drawGlowCircle(bg, -30, 470, 100, 0.04);
+
+    this.add.text(W/2, 46, t('leaderboard'), {
+      fontFamily: 'Arial, sans-serif', fontSize: '26px', fontStyle: 'bold', color: PALETTE.textMain
+    }).setOrigin(0.5).setDepth(10);
+
+    this.statusText = this.add.text(W/2, H/2 - 20, t('leaderboardLoading'), {
+      fontFamily: 'Arial, sans-serif', fontSize: '15px', color: PALETTE.textDim
+    }).setOrigin(0.5).setDepth(10);
+
+    const backY = 640, backW = 170, backH = 58;
+    const backGfx = this.add.graphics().setDepth(10);
+    drawCandyPillButton(backGfx, W/2, backY, backW, backH, 0xC9BBFF, 0x8F72E8, 0x443077);
+    backGfx.setInteractive({
+      hitArea: new Phaser.Geom.Rectangle(W/2 - backW/2 - 14, backY - backH/2, backW + 28, backH),
+      hitAreaCallback: Phaser.Geom.Rectangle.Contains, useHandCursor: true
+    });
+    this.add.text(W/2, backY, t('back'), {
+      fontFamily: 'Arial, sans-serif', fontSize: '19px', fontStyle: 'bold', color: PALETTE.textMain
+    }).setOrigin(0.5).setDepth(11);
+    backGfx.on('pointerdown', (p, x, y, e) => { e.stopPropagation(); this.scene.start('menu'); });
+
+    window.gameBridge
+      .getLeaderboardEntries(LEADERBOARD_NAME, { quantityTop: 8, includeUser: true, quantityAround: 2 })
+      .then((result) => this.renderEntries(result));
+  }
+
+  renderEntries(result) {
+    const entries = result && Array.isArray(result.entries) ? result.entries : [];
+    if (!entries.length) {
+      this.statusText.setText(t('leaderboardEmpty')).setVisible(true);
+      return;
+    }
+    this.statusText.setVisible(false);
+
+    const rowH = 52, startY = 92, maxRows = 10;
+    entries.slice(0, maxRows).forEach((entry, i) => {
+      const cy = startY + rowH / 2 + i * rowH;
+      const isPlayer = result.userRank != null && entry.rank === result.userRank;
+
+      const rowGfx = this.add.graphics().setDepth(10);
+      drawPanel(rowGfx, W/2, cy, W - 32, rowH - 10, 14, isPlayer ? 0.9 : 0.16);
+      this.rowObjects.push(rowGfx);
+
+      const rankText = this.add.text(36, cy, String(entry.rank), {
+        fontFamily: 'Arial, sans-serif', fontSize: '16px', fontStyle: 'bold',
+        color: isPlayer ? '#FFD166' : PALETTE.textDim
+      }).setOrigin(0.5).setDepth(11);
+      this.rowObjects.push(rankText);
+
+      const name = (entry.player && entry.player.publicName) || t('you');
+      const nameText = this.add.text(62, cy, name, {
+        fontFamily: 'Arial, sans-serif', fontSize: '15px', fontStyle: 'bold', color: PALETTE.textMain
+      }).setOrigin(0, 0.5).setDepth(11);
+      this.rowObjects.push(nameText);
+
+      const scoreStr = entry.formattedScore != null ? entry.formattedScore : String(entry.score);
+      const scoreText = this.add.text(W - 32, cy, scoreStr, {
+        fontFamily: 'Arial, sans-serif', fontSize: '16px', fontStyle: 'bold', color: PALETTE.textMain
+      }).setOrigin(1, 0.5).setDepth(11);
+      this.rowObjects.push(scoreText);
+    });
+  }
+}
+
 function startGame() {
   const config = {
     type: Phaser.AUTO,
@@ -1242,7 +1359,7 @@ function startGame() {
     height: H,
     parent: 'game-root',
     backgroundColor: '#2B160C',
-    scene: [MenuScene, MainScene, ShopScene],
+    scene: [MenuScene, MainScene, ShopScene, LeaderboardScene],
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH }
   };
   new Phaser.Game(config);

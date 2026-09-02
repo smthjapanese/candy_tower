@@ -43,6 +43,18 @@ window.gameBridge = (function () {
     }
   }
 
+  // A handful of fake competitors so the leaderboard screen has something to
+  // show during local testing. The player's own best (mockPlayerScores, keyed
+  // by leaderboard name) is merged in and re-ranked on every read.
+  const MOCK_LB_BOTS = [
+    { name: 'Мила', score: 640 },
+    { name: 'Тимур', score: 480 },
+    { name: 'Соня', score: 355 },
+    { name: 'Егор', score: 210 },
+    { name: 'Ксюша', score: 95 }
+  ];
+  const mockPlayerScores = {};
+
   function createMockSDK() {
     isMock = true;
     console.warn('[yandex-bridge] /sdk.js не найден — используется локальная заглушка для тестов.');
@@ -69,6 +81,33 @@ window.gameBridge = (function () {
         Promise.resolve({
           getItem: (k) => localStorage.getItem(k),
           setItem: (k, v) => localStorage.setItem(k, v)
+        }),
+      getLeaderboards: () =>
+        Promise.resolve({
+          setLeaderboardScore: (name, score) => {
+            mockPlayerScores[name] = Math.max(mockPlayerScores[name] || 0, score);
+            console.log('[mock] leaderboard "' + name + '" score set: ' + score);
+            return Promise.resolve();
+          },
+          getLeaderboardEntries: (name) => {
+            const playerScore = mockPlayerScores[name] || 0;
+            const entries = MOCK_LB_BOTS.map((b) => ({
+              score: b.score,
+              formattedScore: String(b.score),
+              player: { publicName: b.name, getAvatarSrc: () => null },
+              isPlayer: false
+            }));
+            entries.push({
+              score: playerScore,
+              formattedScore: String(playerScore),
+              player: { publicName: null, getAvatarSrc: () => null },
+              isPlayer: true
+            });
+            entries.sort((a, b) => b.score - a.score);
+            entries.forEach((e, i) => { e.rank = i + 1; });
+            const userEntry = entries.find((e) => e.isPlayer);
+            return Promise.resolve({ entries, userRank: userEntry ? userEntry.rank : null });
+          }
         }),
       environment: { i18n: { lang: mockLang() } }
     };
@@ -227,7 +266,40 @@ window.gameBridge = (function () {
       }
     },
 
-    isMock() { return isMock; }
+    isMock() { return isMock; },
+
+    /**
+     * Отправляет результат в таблицу лидеров Yandex Games. Лидерборд с таким
+     * техническим именем должен быть заранее создан в консоли разработчика
+     * (числовой тип, сортировка по убыванию) — до этого момента вызов просто
+     * молча ничего не делает на боевой платформе. Всегда безопасно вызывать:
+     * ошибки (нет доступа, лидерборд не настроен, игрок не авторизован)
+     * проглатываются, чтобы не мешать основному геймплею.
+     */
+    async setLeaderboardScore(name, score) {
+      await whenReady();
+      try {
+        const lb = await ysdk.getLeaderboards();
+        await lb.setLeaderboardScore(name, score);
+      } catch (e) {}
+    },
+
+    /**
+     * Возвращает { entries, userRank } или null, если лидерборд недоступен
+     * (SDK не поддерживает его, лидерборд не создан в консоли, игрок не
+     * авторизован и т.п.) — вызывающий код должен уметь показать пустое
+     * состояние в этом случае.
+     */
+    async getLeaderboardEntries(name, options) {
+      await whenReady();
+      try {
+        const lb = await ysdk.getLeaderboards();
+        const opts = options || { quantityTop: 10, includeUser: true, quantityAround: 5 };
+        return await lb.getLeaderboardEntries(name, opts);
+      } catch (e) {
+        return null;
+      }
+    }
   };
 
   return api;

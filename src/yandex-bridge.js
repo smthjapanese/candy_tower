@@ -16,6 +16,7 @@ window.gameBridge = (function () {
   let ready = false;
   let readyResolvers = [];
   let isMock = false;
+  let playerPromise = null;
 
   function whenReady() {
     return new Promise((resolve) => {
@@ -70,8 +71,31 @@ window.gameBridge = (function () {
           getItem: (k) => localStorage.getItem(k),
           setItem: (k, v) => localStorage.setItem(k, v)
         }),
+      // Mirrors the real ysdk.getPlayer() Player object's getData()/setData()
+      // shape so local testing exercises the same cloud-save code path.
+      getPlayer: () =>
+        Promise.resolve({
+          getData: () => {
+            try {
+              const raw = localStorage.getItem('candyTowerMeta');
+              return Promise.resolve(raw ? JSON.parse(raw) : {});
+            } catch (e) {
+              return Promise.resolve({});
+            }
+          },
+          setData: (data) => {
+            try { localStorage.setItem('candyTowerMeta', JSON.stringify(data)); } catch (e) {}
+            return Promise.resolve();
+          }
+        }),
       environment: { i18n: { lang: mockLang() } }
     };
+  }
+
+  /** Cached so repeated saves/loads within a session don't re-request the player object. */
+  function getPlayer() {
+    if (!playerPromise) playerPromise = ysdk.getPlayer({ scopes: false });
+    return playerPromise;
   }
 
   function loadSDK() {
@@ -200,9 +224,23 @@ window.gameBridge = (function () {
       });
     },
 
-    /** Сохранение прогресса. Пытается через игровое хранилище SDK, иначе — localStorage. */
+    /**
+     * Сохранение прогресса. Основной путь — ysdk.getPlayer().setData(): это
+     * player-scoped облачное сохранение (переживает переустановку/смену
+     * устройства для авторизованных игроков, и работает даже для анонимных
+     * "lite"-игроков) — именно его рекомендует чек-лист модерации (п. 1.9),
+     * а не getStorage(), которое просто device-local и в некоторых контекстах
+     * встраивания подвержено ограничениям на сторонний storage. getStorage(),
+     * а затем сырой localStorage — фолбэки на случай, если Player API
+     * недоступен.
+     */
     async saveData(obj) {
       await whenReady();
+      try {
+        const player = await getPlayer();
+        await player.setData(obj, true);
+        return;
+      } catch (e) {}
       try {
         const storage = await ysdk.getStorage();
         storage.setItem('candyTowerMeta', JSON.stringify(obj));
@@ -214,16 +252,26 @@ window.gameBridge = (function () {
     async loadData() {
       await whenReady();
       try {
+        const player = await getPlayer();
+        const data = await player.getData();
+        // Пустой объект — новый player-профиль без облачных данных (в том
+        // числе у игроков, у которых прогресс раньше сохранялся только через
+        // getStorage/localStorage, до перехода на Player API). Не считаем
+        // это валидным сохранением — идём дальше по цепочке фолбэков, чтобы
+        // не потерять уже накопленный прогресс; следующий saveData() перенесёт
+        // его в облако.
+        if (data && Object.keys(data).length) return data;
+      } catch (e) {}
+      try {
         const storage = await ysdk.getStorage();
         const raw = storage.getItem('candyTowerMeta');
+        if (raw) return JSON.parse(raw);
+      } catch (e) {}
+      try {
+        const raw = localStorage.getItem('candyTowerMeta');
         return raw ? JSON.parse(raw) : { best: 0, candy: 0 };
       } catch (e) {
-        try {
-          const raw = localStorage.getItem('candyTowerMeta');
-          return raw ? JSON.parse(raw) : { best: 0, candy: 0 };
-        } catch (e2) {
-          return { best: 0, candy: 0 };
-        }
+        return { best: 0, candy: 0 };
       }
     },
 

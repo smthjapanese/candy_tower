@@ -293,6 +293,20 @@ class MainScene extends Phaser.Scene {
     this.spawnMovingBlock();
     this.input.on('pointerdown', () => { this.ensureAudio(); this.handleTap(); });
 
+    // Pause game audio when the tab loses focus / is minimized, resume when
+    // it comes back — moderation checklist §1.3. Scoped to this scene
+    // instance's audioCtx and cleaned up on shutdown so scene.restart()
+    // doesn't pile up duplicate document-level listeners.
+    const onVisibilityChange = () => {
+      if (!this.audioCtx) return;
+      if (document.hidden) this.audioCtx.suspend().catch(() => {});
+      else if (this.soundOn) this.audioCtx.resume().catch(() => {});
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    this.events.once('shutdown', () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    });
+
     this.buildOverlayUI();
     this.buildPauseUI();
 
@@ -327,9 +341,10 @@ class MainScene extends Phaser.Scene {
 
     this.contBtn.on('pointerdown', (p, x, y, e) => {
       e.stopPropagation();
+      this.pauseAudioForAd();
       window.gameBridge.showRewarded(
-        () => { this.reviveTower(); },       // onRewarded — досмотрел до конца
-        () => {}                              // onClose — просто закрыли плеер
+        () => { this.resumeAudioForAd(); this.reviveTower(); },  // onRewarded — досмотрел до конца
+        () => { this.resumeAudioForAd(); }                       // onClose — просто закрыли плеер
       );
     });
     this.contSkip.on('pointerdown', (p, x, y, e) => {
@@ -546,7 +561,8 @@ class MainScene extends Phaser.Scene {
     };
 
     if (sessionDeathCount % INTERSTITIAL_EVERY === 0) {
-      window.gameBridge.showInterstitial(reveal);
+      this.pauseAudioForAd();
+      window.gameBridge.showInterstitial(() => { this.resumeAudioForAd(); reveal(); });
     } else {
       reveal();
     }
@@ -558,8 +574,20 @@ class MainScene extends Phaser.Scene {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       if (Ctx) this.audioCtx = new Ctx();
     }
-    if (this.audioCtx && this.audioCtx.state === 'suspended') this.audioCtx.resume();
+    if (this.audioCtx && this.audioCtx.state === 'suspended' && this.soundOn) this.audioCtx.resume();
   }
+
+  // Yandex ads render as an overlay within the same page (document stays
+  // "visible"), so the tab-blur handler below never fires for them — call
+  // these explicitly around every showInterstitial()/showRewarded() so game
+  // audio doesn't play under the ad (moderation checklist §4.7).
+  pauseAudioForAd() {
+    if (this.audioCtx && this.audioCtx.state === 'running') this.audioCtx.suspend().catch(() => {});
+  }
+  resumeAudioForAd() {
+    if (this.audioCtx && this.soundOn && this.audioCtx.state === 'suspended') this.audioCtx.resume().catch(() => {});
+  }
+
   tone(freq, duration, type, gain) {
     if (!this.soundOn || !this.audioCtx) return;
     try {
@@ -1234,6 +1262,12 @@ class ShopScene extends Phaser.Scene {
     this.tweens.add({ targets: this.toast, alpha: 0, delay: 700, duration: 350 });
   }
 }
+
+// Disables the browser's right-click / long-press context menu over the game
+// area (desktop right-click and Android's long-press both fire 'contextmenu';
+// iOS Safari's callout is handled separately via -webkit-touch-callout in
+// main.css) — required by the moderation checklist §1.6.
+document.addEventListener('contextmenu', (e) => e.preventDefault());
 
 function startGame() {
   const config = {

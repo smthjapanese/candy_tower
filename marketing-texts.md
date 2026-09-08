@@ -73,3 +73,48 @@
 ---
 
 Если что-то из этого не подходит по тону или хочется больше вариантов на конкретный пункт — скажи, перепишу.
+
+## English version (карточка Yandex Games, вкладка "Английский")
+
+Тексты под точные лимиты полей консоли: SEO-описание ≤160, короткое описание ≤70,
+«Об игре» и «Как играть» ≤1000 символов. Описывают ту же игру, что и русская
+версия, включая магазин скинов — его ещё не было, когда писался текст выше.
+
+**Название:** Candy Tower
+
+**Описание для SEO** (139/160):
+> Candy Tower: tap to drop candies, merge matching pairs, and stack the tallest tower before it topples. Free one-tap arcade game — play now!
+
+**Короткое описание** (69/70):
+> Drop candies, merge matching pairs, stack the tallest tower. One tap!
+
+**Об игре** (977/1000):
+> Candy Tower is a one-tap casual arcade game: drop candies at just the right moment to build a tower as tall as you can.
+>
+> Nail the timing and the candy locks in wide and sturdy; miss, and the tower narrows and leans. Stack two matching candies on top of each other and they merge into the next flavor — from mint gum to cherry drops — adding stability.
+>
+> Watch the tilt meter — the tower leans toward the heavier side and can collapse if you keep stacking crooked. Catch golden bonus candies for extra points, save candy currency between runs, and beat your own record.
+>
+> The rule is simple — one tap. The challenge is learning to feel the moment.
+>
+> **Features:**
+> — Two proven mechanics in one: precision timing + match-merge
+> — Light physics, no heavy engine — the tower really leans and falls
+> — Bonus points for precise drops
+> — One "second chance" per run via a rewarded ad
+> — A candy shop with unlockable cosmetic skins for your tower
+> — Progress and high scores saved between sessions
+
+**Как играть** (766/1000):
+> Tap anywhere to drop the swinging candy onto the stack below.
+>
+> — Precise drops widen the tower and keep it stable.
+> — Sloppy drops shrink the landing spot and tilt the tower.
+> — Land two candies of the same kind directly on top of each other to merge them into the next flavor, which widens and steadies the stack.
+> — Watch the tilt bar at the top: if it fills up, the tower collapses.
+> — Grab the glowing golden candy when it appears for a big bonus.
+> — If the tower falls, you get one "second chance" per run — watch a short video to keep going from where you left off.
+> — Earn candy currency every run and spend it in the shop to unlock new candy skins.
+> — Pause anytime from the button in the top corner.
+>
+> Simple to pick up, tricky to put down — how high can you stack?

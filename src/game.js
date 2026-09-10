@@ -68,10 +68,9 @@ const SKIN_DEFS = [
 ];
 
 // ---------- localized UI strings ----------
-// Only 'ru' exists today (the only language Yandex moderation approved), but
-// every UI-facing string routes through here so adding STRINGS.en later is a
-// pure data change — no call site needs to change. Values that need runtime
-// data (score, combo, etc.) are functions; everything else is a plain string.
+// Every UI-facing string routes through here so adding a language is a pure
+// data change — no call site needs to change. Values that need runtime data
+// (score, combo, etc.) are functions; everything else is a plain string.
 const STRINGS = {
   ru: {
     tapHint: 'Тапни, чтобы уронить конфету',
@@ -104,11 +103,43 @@ const STRINGS = {
     selectedBadge: 'ВЫБРАНО',
     ownedBadge: 'КУПЛЕНО',
     skinNames: ['Клубничный', 'Лимонный', 'Мятный', 'Виноградный', 'Апельсиновый', 'Вишнёвый']
+  },
+  en: {
+    tapHint: 'Tap to drop the candy',
+    towerLean: 'Tower Lean',
+    continueTitle: 'THE TOWER WOBBLED',
+    continueSub: 'Watch an ad to keep it standing',
+    watchAd: '▶ WATCH AD',
+    skip: 'Skip',
+    gameOverTitle: 'TOWER COLLAPSED',
+    statRecord: 'BEST',
+    statCandy: 'CANDY',
+    retry: 'RETRY',
+    shareCopied: 'Copied!',
+    shareText: (score) => `I built a Candy Tower ${score} points tall! Can you beat it?`,
+    pauseTitle: 'PAUSED',
+    pauseResume: 'RESUME',
+    pauseRestart: 'RESTART',
+    pauseMenu: 'MENU',
+    bonusPopup: 'BONUS! +50',
+    precisePopup: 'PERFECT! +25  ↔ WIDER',
+    mergePopup: (combo, bonus) => 'MERGE x' + combo + '  +' + bonus + '  ↔ WIDER',
+    menuTitleTop: 'CANDY',
+    menuTitleBottom: 'TOWER',
+    play: 'PLAY',
+    shop: 'SHOP',
+    settings: 'SETTINGS',
+    bestScore: (best) => 'BEST: ' + best,
+    back: 'BACK',
+    notEnoughCandy: 'Not enough candy',
+    selectedBadge: 'SELECTED',
+    ownedBadge: 'OWNED',
+    skinNames: ['Strawberry', 'Lemon', 'Mint', 'Grape', 'Orange', 'Cherry']
   }
 };
 
-// Languages the UI actually has copy for — extend once STRINGS.en (etc.) exists.
-const SUPPORTED_LANGS = ['ru'];
+// Languages the UI actually has copy for.
+const SUPPORTED_LANGS = ['ru', 'en'];
 let CURRENT_LANG = 'ru';
 
 // Looks up STRINGS[CURRENT_LANG][key], calling it with args when it's a
@@ -1288,9 +1319,8 @@ function startGame() {
 // язык не должен быть зашит намертво). Резолвим его один раз, до первого
 // scene.create(), чтобы все сцены строили UI сразу на правильном языке —
 // без "мигания" текста и без гонки между несколькими сценами, каждая из
-// которых независимо спрашивала бы SDK. Единственный сейчас поддерживаемый
-// язык — 'ru'; если платформа вернёт что-то другое, используем 'ru' как
-// дефолт, пока не появится соответствующий STRINGS.<lang>.
+// которых независимо спрашивала бы SDK. Если платформа вернёт язык, для
+// которого нет STRINGS.<lang>, используем 'ru' как дефолт.
 window.gameBridge.init()
   .then(() => window.gameBridge.getLang())
   .then((lang) => { CURRENT_LANG = SUPPORTED_LANGS.includes(lang) ? lang : 'ru'; })
